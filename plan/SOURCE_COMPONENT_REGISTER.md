@@ -209,3 +209,176 @@ Do not add a new vector database or duplicate integration. Audit the exact sqlit
 | sqlite-vec | Use existing Jan integration initially; verify bundled binary/version |
 
 **No third-party source has been copied into HLNA v2 by this audit.**
+
+
+## 9. Research update — 2026-11-24
+
+This section adds independent source research performed after the preliminary audit. Findings are tied to official repositories, release notes or project documentation where possible. Performance claims made by upstream projects remain unverified until reproduced on the HLNA target machine.
+
+### 9.1 computer-use-linux — leading Linux desktop interaction candidate
+
+- Repository: https://github.com/agent-sh/computer-use-linux
+- Crate: https://crates.io/crates/computer-use-linux
+- Latest crate version observed: `0.7.59`, published 2026-11-20.
+- Licence: MIT (verify all packaged assets and dependencies at the exact pinned revision).
+- Security policy: https://github.com/agent-sh/computer-use-linux/blob/main/SECURITY.md
+- Status: **Promising prototype candidate; not approved for direct agent exposure or unrestricted integration.**
+
+This is a substantially stronger candidate than the previously listed `lindoelio/computer-use`. The project describes native Linux desktop control using AT-SPI accessibility trees, screenshots, compositor-aware window targeting and input across GNOME, KDE/KWin, Hyprland, niri, COSMIC, i3, Sway, labwc/wlroots and X11. It is a Rust project extracted from the Linux Codex Desktop implementation and is published as a standalone crate/MCP server.
+
+Official project documentation:
+- https://github.com/agent-sh/computer-use-linux
+- https://docs.rs/crate/computer-use-linux/latest
+- https://github.com/agent-sh/computer-use-linux/releases
+
+Important caveats:
+- Support is compositor- and session-dependent. The README's own matrix documents cases where a desktop can be observed but some input or window operations are unavailable. Do not describe it as universal Wayland automation.
+- It can observe and mutate the user's real desktop. Screenshots and accessibility text may contain private information. Observation and mutation need separate permissions and visible user control.
+- It exposes an MCP server and CLI. Do not make the full tool set directly available to an autonomous agent without an HLNA policy gate.
+- Its HTTP MCP mode is optional and documented as unencrypted; prefer stdio/local process integration. Never expose it on a network without a separately reviewed secure transport.
+- The project states that shell execution is optional and disabled unless explicitly enabled. HLNA should keep shell execution out of this integration.
+- The repository security policy says only the latest release is supported for security updates. Maintain a regular update review.
+- The crates.io version observed (0.7.59) is newer than the latest GitHub release tag surfaced during the search (v0.7.31). Resolve this release/tag discrepancy and pin a verifiable source commit before adoption.
+
+Proposed HLNA approach:
+1. Prototype the latest verifiable source revision on the actual target desktop session.
+2. Evaluate source integration versus spawning it as a supervised local child process.
+3. Keep its low-level desktop backend behind an HLNA-owned broker. The broker separately authorises observation, screenshots, window focus, typing, clicks and other mutations.
+4. Add a visible activity indicator, per-session grants, immediate stop/revoke, action audit and strict target scoping.
+5. Reject ambiguous/stale targets and never replay an action after dispatch.
+6. Keep desktop automation disabled until the user explicitly enables it.
+
+### 9.2 docling.rs — Rust document pipeline candidate
+
+- Repository: https://github.com/docling-project/docling.rs
+- Latest release observed: `v2.86.14`, 2026-11-21.
+- Licence: MIT, with a separately identified Adobe CID-to-Unicode mapping resource under BSD-3-Clause.
+- Status: **Promising specialist prototype; compare with Jan's current parser and Python Docling.**
+
+The project is a Rust port of Docling and advertises PDF, Office, HTML, image/scanned-document and audio/video ingestion. Its workspace includes a core document model, format converters, PDF/ONNX layout and OCR pipeline, CLI, language bindings and optional RAG subsystem. It offers a Rust library/CLI route that may avoid making a full Python/PyTorch stack mandatory.
+
+Official references:
+- https://github.com/docling-project/docling.rs
+- https://github.com/docling-project/docling.rs/releases
+- https://github.com/docling-project/docling.rs/blob/master/Cargo.toml
+- https://github.com/docling-project/docling.rs/blob/master/README.md
+
+Proposed use:
+- Benchmark as a document-ingestion worker or Rust library for complex PDFs, tables, OCR and Office documents.
+- Keep model downloads separate, explicit and user-controlled.
+- Compare it against Jan's existing parser, lighter format-specific parsers and upstream Python Docling.
+- Reproduce upstream performance and quality claims using the same documents and hardware.
+- Preserve the BSD-3-Clause notice for Adobe mapping resources in redistributed builds; audit every ONNX model and font independently.
+
+Risks:
+- The compact binary/release asset size is not the complete installed footprint when OCR/layout models are downloaded.
+- PDF/image processing may have meaningful RAM and CPU cost. It should not run continuously or be a mandatory dependency for simple text documents.
+- A separate RAG subsystem inside docling.rs could duplicate Jan's vector database and embedding pipeline. Initially use it only for conversion/parsing, then pass normalized output into one chosen HLNA retrieval stack.
+
+### 9.3 sherpa-onnx — voice candidate strengthened
+
+- Repository: https://github.com/k2-fsa/sherpa-onnx
+- Release: `v2.0.3`, published 2026-11-22; release signature reported verified.
+- Licence: Apache-2.0 for the project; individual model and voice assets have their own terms.
+- Rust docs: https://docs.rs/sherpa-onnx/latest/sherpa_onnx/
+- Status: **Prototype candidate for offline ASR/VAD/TTS.**
+
+The Rust API provides model-family configuration, stream processing and RAII cleanup; upstream maintains Rust examples and Tauri examples. The default Rust setup uses static linking and may automatically download matching native libraries during the first build. HLNA must not allow hidden/unpinned build-time downloads: pin artifacts, verify checksums and cache dependencies in a reproducible build process.
+
+Release notes for v2.0.3 specifically corrected a PocketTTS model README licence note to CC-BY-4.0 rather than non-commercial. This is a useful reminder that model licences must be tracked independently from the Apache-2.0 code licence.
+
+References:
+- https://github.com/k2-fsa/sherpa-onnx/releases/tag/v2.0.3
+- https://github.com/k2-fsa/sherpa-onnx/tree/master/rust-api-examples
+- https://github.com/k2-fsa/sherpa-onnx/tree/master/tauri-examples
+
+Comparison:
+- Evaluate sherpa-onnx as the broad speech toolkit for ASR, VAD and TTS.
+- Evaluate whisper-rs/whisper.cpp as a narrower ASR alternative, not a replacement for a full TTS/VAD stack. whisper-rs is Unlicense, but its native build, model quality and hardware path still need review.
+- Compare latency, streaming stability, CPU/GPU use, model footprint, language coverage and speech quality. No model should be bundled by default until its licence and size are understood.
+
+### 9.4 Workflow engine comparison — Apalis versus Cloacina
+
+**Apalis**
+- Repository: https://github.com/apalis-dev/apalis
+- Observed release: `1.2.0` (2026-11-14), MIT.
+- SQLite backend: https://github.com/apalis-dev/apalis-sqlite
+- Docs: https://docs.rs/apalis/latest/apalis/
+- Status: **Strong background-job candidate; workflow layer needs maturity review.**
+
+Apalis provides workers, persistent backends including SQLite, retries, timeouts, scheduling, idempotency, heartbeats and recovery. Its `apalis-workflow` crate is currently shown as `0.1.0-rc.10` in docs.rs, with sequential and DAG workflow primitives. Treat the queue/worker core and workflow subcrate as separate maturity decisions.
+
+**Cloacina**
+- Repository: https://github.com/colliery-io/cloacina
+- Observed Rust crate: `0.12.0`.
+- Licence: Apache-2.0.
+- Docs: https://docs.rs/cloacina/latest/cloacina/
+- Status: **Promising embedded workflow prototype; not yet selected.**
+
+Cloacina provides embedded Rust workflows with SQLite/PostgreSQL persistence, DAG dependencies, retries, task recovery and event-driven computation graphs. Its architecture appears closer to HLNA's need for durable multi-step workflows than a basic task queue alone.
+
+Provisional comparison:
+- Apalis is a good candidate for general-purpose background jobs and worker scheduling.
+- Cloacina is a good candidate for durable workflow graphs and recovery.
+- Neither is a visual workflow editor, automation recorder or permission system. HLNA would still need a user-facing workflow definition/editor and must route every action through its permission broker.
+- Do not add both automatically. Prototype a representative set of jobs and workflows (including process restart, retries, cancellation, pause/resume, idempotency and SQLite contention) and select one engine if it meets the requirements. If Jan's own task infrastructure suffices, select neither.
+
+References:
+- https://docs.rs/apalis/latest/apalis/
+- https://docs.rs/apalis-workflow/latest/apalis_workflow/
+- https://docs.rs/apalis-sqlite/latest/apalis_sqlite/
+- https://docs.rs/cloacina/latest/cloacina/
+- https://colliery-io.github.io/cloacina/explanation/features/
+
+### 9.5 Extism — retain defer decision
+
+Extism's observed Rust crate version is `1.41.0`. Its default features include HTTP access, HTTP-based module registration, filesystem-based module registration and Wasmtime defaults. Those are not acceptable as ambient extension privileges in HLNA.
+
+Jan already contains an extension architecture and Wasmtime-related runtime code. Extism should remain deferred unless a pinned, reproducible comparison shows it provides a material benefit. If ever prototyped, disable default features and expose only narrowly defined HLNA host functions; no plugin gets ambient filesystem or network access.
+
+References:
+- https://docs.rs/crate/extism/latest/features
+- https://extism.org/docs/concepts/configuration/
+
+### 9.6 Jan pinned-source audit — confirmed implementation facts
+
+The following were checked directly at Jan commit `49a84bdeaebdfc0f36c00f252eb638f516a48432`:
+
+- Root `LICENSE` is Apache-2.0 and includes a request for attribution in user-facing documentation/materials where appropriate.
+- `src-tauri/src/core/agent/loop.rs` contains a server-side OpenAI orchestration entry point that constructs `ToolPermissions::allow_all()`. This is specifically an API-server path; it does not by itself prove that every desktop agent path is unrestricted. HLNA must trace all entry points and enforce a central policy for both desktop and local API surfaces.
+- `src-tauri/src/core/app/paths.rs` defines `JAN_DATA_ROOT`, Jan data folders and Jan-specific path handling. Replacing only the Tauri bundle identifier is insufficient. Audit all environment variables, folder names, migration commands, backups and recovery paths.
+- `src-tauri/plugins/tauri-plugin-vector-db/src/db.rs` stores vector collections below a Jan-specific data path and probes for sqlite-vec, with a linear-search fallback. This supports retaining the existing retrieval storage as the first benchmark baseline rather than adding another vector DB immediately.
+- `src-tauri/tauri.conf.json` declares the Jan product name, binary name and `jan.ai.app` identifier. It also lists multiple capability files and a CSP with broad remote connectivity.
+- `src-tauri/capabilities/default.json` includes shell spawning, broad HTTP URL scopes, agent tools, updater permissions and other plugins. This must be replaced by explicit HLNA capabilities with minimal per-window permissions.
+- Jan's Tauri configuration is a starting point, not a security guarantee. Tauri documentation explicitly states that capabilities do not sandbox unsafe Rust code and that Linux cannot distinguish requests from an embedded iframe and its parent window in the same way as some other platforms.
+
+Pinned source links:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/LICENSE
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/agent/loop.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/app/paths.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-vector-db/src/db.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/capabilities/default.json
+- https://v2.tauri.app/security/capabilities/
+- https://v2.tauri.app/security/
+
+### 9.7 Updated provisional dispositions
+
+| Component | Updated disposition | Next gate |
+|---|---|---|
+| Jan pinned desktop foundation | Conditional foundation candidate | Clean unmodified Linux build; identity/network/security audit |
+| Jan chat, provider and thread modules | Reuse candidates | Dependency and data-isolation tests |
+| Jan agent loop/tools | Selective reuse only | Trace all permission paths; remove permissive defaults |
+| Jan vector DB/sqlite-vec | Keep as initial benchmark baseline | Verify binary provenance/version and retrieval quality |
+| Jan extension runtime/API | Keep as first extension baseline | Review Wasmtime isolation, grants and lifecycle |
+| computer-use-linux | New leading desktop-interaction prototype | Resolve release/tag discrepancy; pin source; test target compositor and permission mediation |
+| older lindoelio/computer-use | Do not adopt as primary implementation | May consult only for narrow code if useful |
+| sherpa-onnx 2.0.3 | Voice prototype | Reproducible native build and model licence/latency checks |
+| whisper-rs | ASR comparison only | Build/quality/resource comparison |
+| docling.rs 2.86.14 | Rust document-pipeline prototype | Reproduce PDF/OCR/table benchmarks and audit models/notices |
+| Python Docling | Comparison baseline / optional worker | Measure Python and model overhead |
+| Cloacina 0.12 | Durable workflow prototype | SQLite restart/recovery/idempotency tests |
+| Apalis 1.2 | Background job queue comparison | Compare against Cloacina and Jan task facilities |
+| Extism 1.41 | Defer | Demonstrate advantage over Jan runtime; no ambient HTTP/filesystem |
+| sqlite-vec standalone addition | Do not add yet | Reconsider only if Jan's existing integration fails benchmarks |
+
+**No candidate in this update is approved for production integration. No third-party source has been copied into the HLNA v2 application tree.**
