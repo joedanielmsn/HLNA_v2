@@ -382,3 +382,28 @@ Pinned source links:
 | sqlite-vec standalone addition | Do not add yet | Reconsider only if Jan's existing integration fails benchmarks |
 
 **No candidate in this update is approved for production integration. No third-party source has been copied into the HLNA v2 application tree.**
+
+
+### 9.8 Desktop foundation comparison — alternatives checked
+
+The Jan choice should be compared against credible, maintained alternatives rather than assumed to be best simply because it was selected first.
+
+| Project | Licence / architecture evidence | Fit for HLNA v2 | Preliminary disposition |
+|---|---|---|---|
+| [Jan](https://github.com/janhq/jan) | Apache-2.0; Tauri 2, Rust backend, React frontend; existing agent, provider and extension architecture | Closest match to the chosen Rust/Tauri architecture and already has useful app-level functionality | Keep as conditional foundation; build and harden |
+| [AnythingLLM](https://github.com/Mintplex-Labs/anything-llm) | MIT; Vite/React frontend plus Node/Express server and document collector; desktop and self-hosted modes | Strong feature-rich reference for RAG, document pipelines and agents, but imports a second Node server/collector architecture | Do not replace Jan as foundation without a strong measured reason; inspect focused document/RAG modules if Jan/docling.rs leave a gap |
+| [GPT4All](https://github.com/nomic-ai/gpt4all) | MIT; Qt/C++ desktop application and native model/backend stack | Mature local-AI product with useful UX ideas, but a second Qt/C++ desktop foundation and bundled inference stack conflict with the current Tauri/Rust/Ollama-first direction | Reference for UX and local-model management; not initial foundation |
+| [Chatbox Community Edition](https://github.com/chatboxai/chatbox) | GPL-3.0; cross-platform desktop client | Useful client UX and provider feature reference; GPL obligations need review against HLNA's eventual distribution/licence, and it does not match the selected Tauri/Rust base | Reference only pending licence/product compatibility |
+| [Open WebUI](https://github.com/open-webui/open-webui) | Newer Open WebUI licence includes a branding clause; older contributions through v0.6.5 remain BSD-3 | Powerful web application and ecosystem, but not a native Tauri/Rust foundation; rebranding constraints make newer code unsuitable for a clean HLNA identity unless terms are accepted | Do not use as the foundation; use only for product research or evaluate old code only if a specific need justifies an older baseline |
+| [OpenYoke](https://github.com/saicv8/OpenYoke) | MIT; Tauri/Rust, Ollama HTTP integration, lightweight frontend | Architectural match for a simple Ollama client, but current adoption/maintenance evidence is too limited for a full foundation | Small reference for simple Ollama integration and branching-chat UX |
+| [Ambient](https://github.com/LukeSutor/ambient) | Tauri/Rust + Next.js, bundled llama.cpp/Vulkan, RustPython and cloud services | Interesting screen-context and agent features, but brings bundled inference and cloud-service assumptions not aligned with Ollama-first/no-telemetry baseline | Feature reference only; no adoption without a separate architecture/licence/security review |
+
+Key references:
+- AnythingLLM architecture and MIT licence: https://github.com/Mintplex-Labs/anything-llm and https://github.com/Mintplex-Labs/anything-llm/blob/master/LICENSE
+- GPT4All Qt/C++ build and MIT licence: https://github.com/nomic-ai/gpt4all and https://github.com/nomic-ai/gpt4all/blob/main/LICENSE.txt
+- Chatbox GPL-3.0: https://github.com/chatboxai/chatbox
+- Open WebUI licence history/branding clause: https://docs.openwebui.com/license/
+- OpenYoke Tauri/Rust/Ollama architecture: https://github.com/saicv8/OpenYoke
+- Ambient Tauri/Rust architecture: https://github.com/LukeSutor/ambient
+
+**Conclusion:** Jan remains the best current starting foundation for HLNA's Tauri 2 + Rust desktop architecture, but only conditionally. AnythingLLM is the strongest broad feature reference for document/RAG workflows; GPT4All is a mature alternative product with a different native stack. The choice must still pass an unmodified baseline build and a focused comparison of required capabilities.
