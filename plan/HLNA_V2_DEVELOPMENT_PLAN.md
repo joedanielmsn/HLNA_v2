@@ -691,3 +691,32 @@ Pinned source:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/mcp/server/http.rs
 
 **Security gate update:** Before HLNA enables any Jan CLI/agent automation, create explicit tests proving that no invocation can auto-approve, disable sandboxing, inherit unrestricted network/home access, or bypass the central broker. Test parent-to-subagent inheritance and every IPC/API/MCP route.
+
+
+### 15.24 Document-processing shortlist expanded
+
+The document-processing source audit now includes the current Docling.rs release and two additional Rust candidates.
+
+**Docling.rs v2.88.1** (2026-11-24) supersedes the earlier v2.86.14 baseline. Its broad Rust workspace, optional ML pipeline, pure-Rust default PDF renderer, and digest-bound model manifest with upstream revisions/licences and immutable model snapshots make it the mature broad-feature candidate. Important build gate: the ML-enabled docling-onnx crate enables ort's download-binaries feature, so the prebuilt ONNX Runtime artifact must be pinned, hash-verified and cached separately from Cargo source dependencies. Avoid its optional dynamic runtime loader initially because it searches environment, model-directory and system library locations.
+
+**docparse-rs** is a new Apache-2.0 Rust candidate (workspace version 0.1.0) supporting 12 formats and a structured, positioned document IR with page/bbox citations. It advertises a no-model deterministic core and optional OCR/layout/table/formula enhancements. It is promising for a lightweight multi-format baseline, but is much less mature than Docling and its published performance/quality claims need independent reproduction. Its current PP-OCRv6 fetcher uses floating Hugging Face main URLs and does not verify cryptographic hashes; HLNA must replace that with pinned, digest-verified assets. Its MCP tools accept arbitrary local paths without an HLNA project-root gate, and its unauthenticated REST server can be configured to bind beyond loopback. Do not expose its MCP/REST interfaces directly. If prototyped, call the library only after broker path authorization, or supervise it under a restrictive OS sandbox.
+
+**Firecrawl pdf-inspector 0.1.7** is MIT-licensed and Rust, focused on fast classification and extraction of born-digital PDFs with positioned text, reading order and tables. It is not a multi-format or OCR solution. Keep it as a specialist PDF fast-path benchmark; add it only if it materially improves native-text PDF latency/quality over the selected broad parser.
+
+**DocSlicer** is a Python parser for PDF/DOCX/PPTX/HTML whose associated BizDocBench reports a strong score on 77 business documents. The benchmark is maintained by the same publisher and explicitly excludes scanned documents, handwriting and OCR, so treat it as a useful external test reference, not independent proof of superiority. DocSlicer is dual-licensed AGPL-3.0-only or commercial; a closed/proprietary distribution needs a careful licence decision and potentially a commercial agreement. Do not integrate its code by default.
+
+### 15.25 Document parser acceptance and security tests
+
+The parser comparison now includes Jan's baseline, Docling.rs no-ML and ML paths, docparse-rs default and optional paths, and pdf-inspector as a PDF specialist. DocSlicer may be used as a benchmark reference if its corpus/methodology is independently reviewed; its code is excluded unless licence compatibility is resolved.
+
+Evaluate a licence-cleared corpus covering born-digital/scanned/mixed PDFs, multi-column layouts, complex tables, CJK/RTL/Unicode, DOCX, PPTX notes/charts, XLSX, HTML, malformed/hostile files and very large documents. Score each format independently. Measure extraction accuracy, reading order, heading hierarchy, table fidelity, page+bbox citations, hidden-text handling, coverage, throughput, cold start, peak RSS, CPU/GPU memory, disk footprint and effect on concurrent Ollama inference.
+
+Security requirements:
+- All parser input paths must be authorized by the HLNA broker before opening.
+- No parser MCP/REST server may receive unrestricted filesystem access.
+- No unauthenticated service may bind to a non-loopback interface.
+- Model files, native runtimes and parser binaries require pinned source revisions, cryptographic hashes, licence records and offline/cache-aware installation.
+- Apply input size, page count, archive expansion, decompression, CPU-time, memory and cancellation limits. Test malformed PDFs and Office ZIP containers.
+- Treat extracted document text as untrusted prompt-injection content; preserve provenance and hidden-text flags, and never treat document instructions as permission grants.
+
+No document parser has been selected for production. No application source has been imported; HLNA v1 remains untouched.
