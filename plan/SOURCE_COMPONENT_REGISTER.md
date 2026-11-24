@@ -44,7 +44,7 @@ This register records what was inspected, what was actually found, and the next 
 
 ### Important security finding
 
-Jan has useful permission machinery, but it is not safe to treat every call path as deny-by-default automatically. At this pinned commit, `ToolPermissions::allow_all()` is explicitly used in at least one agent orchestration/proxy construction path (`src-tauri/src/core/agent/loop.rs` around line 3196). The permission type itself documents that this helper is permissive. Jan's consent store also supports saved broad MCP grants.
+Jan has useful permission machinery, but it is not safe to treat every call path as deny-by-default automatically. The shared orchestration loop receives a ToolPermissions value; it does not itself construct ToolPermissions::allow_all() at this pinned commit. The permissive constructor exists in the permission module and is used in tests. Every caller and surface still needs separate tracing. Jan's consent store also supports saved MCP grants.
 
 HLNA must trace every construction and execution path, then enforce its own deny-by-default policy centrally. Do not simply reuse Jan defaults or assume the UI approval prompt covers every execution path.
 
@@ -116,7 +116,7 @@ Consider for durable background job orchestration only if Jan's existing task/ag
 - Current default Cargo features include HTTP and filesystem registration, in addition to Wasmtime defaults.
 
 ### Proposed use
-Compare against Jan's existing extension architecture and its Wasmtime-based worker/runtime. Do not add Extism unless it offers a clear compatibility or maintenance advantage.
+Compare against Jan's existing JavaScript Web Worker extension architecture. Jan does not use Wasmtime for this runtime at the pinned revision. Do not add Extism unless it offers a clear compatibility or maintenance advantage.
 
 ### Risks / gates
 - Adding Extism may duplicate Wasmtime/runtime code already present in Jan.
@@ -219,7 +219,7 @@ This section adds independent source research performed after the preliminary au
 
 - Repository: https://github.com/agent-sh/computer-use-linux
 - Crate: https://crates.io/crates/computer-use-linux
-- Latest crate version observed: `0.7.59`, published 2026-11-20.
+- Latest crate/package version observed in the current source and registry: 0.7.60 (2026-11-22). The GitHub Releases page surfaced only tag v0.7.31; resolve the source-tag/registry provenance discrepancy before pinning.
 - Licence: MIT (verify all packaged assets and dependencies at the exact pinned revision).
 - Security policy: https://github.com/agent-sh/computer-use-linux/blob/main/SECURITY.md
 - Status: **Promising prototype candidate; not approved for direct agent exposure or unrestricted integration.**
@@ -479,3 +479,142 @@ References:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/extensions/vector-db-extension/src/index.ts
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/extensions/rag-extension/src/index.ts
 
+
+
+## 10. Research update — 2026-11-24 (continued)
+
+This update records a deeper pass over extension supply-chain controls, Jan's existing background-task facilities, current workflow libraries, Docling.rs model/build requirements, sherpa-onnx's Rust linking behaviour, and the current computer-use-linux source version. No component is approved for production integration by these findings alone.
+
+### 10.1 Jan extension supply-chain controls — positive finding and remaining gap
+
+The pinned Jan extension implementation has stronger publisher-integrity controls than the earlier summary made explicit:
+
+- A source can be associated with a public key explicitly pinned by the user. Jan ships no universal trust key; the user's pinned key is the trust anchor.
+- The index is signed using detached Ed25519 signatures over the exact index bytes. The implementation uses strict signature verification and rejects weak keys/non-canonical signatures.
+- Signed indexes have freshness controls: generated timestamps cannot roll back behind the latest accepted index, cannot be too far in the future, and can expire.
+- Each indexed extension tarball is pinned by SHA-512 SRI. The downloaded archive is checked against that digest.
+- The package manifest's extension ID, version and requested permissions are compared with the signed index listing before consent is presented. This prevents a tarball from silently changing the permission set shown in the catalog.
+- Unsigned indexes and local .tgz installation are also supported and must remain visibly distinguishable from keyed/verified sources.
+- An optional provenance-attestation URL in the index is displayed as reported by the source; Jan explicitly does not verify that attestation. Do not mistake it for a verified build provenance statement.
+- Permission changes on update are represented as a diff and newly requested permissions require consent.
+
+This is a useful baseline for HLNA's extension catalogue and update design. Before reuse, test key rotation, revocation/re-pinning UX, rollback/freshness edge cases, signature and SRI failures, downgrade behaviour, package extraction limits, registry recovery, and whether a compromised already-pinned publisher can ship a malicious but correctly signed extension. A valid signature proves publisher-key continuity and integrity, not that the extension is benign.
+
+Pinned source:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/signature.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/index.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/install.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/docs/src/pages/docs/desktop/extensions/index.mdx
+
+### 10.2 Jan background work — useful agent primitives, not a general durable workflow engine
+
+The pinned Jan source includes real background-agent functionality:
+
+- Cowork has subagent dispatch, task/todo state, and background monitor tools.
+- Finished subagent runs are merged by run ID and stored in the Cowork session state sidecar. Cowork session persistence uses the shared thread store and a separate sidecar for non-transcript state.
+- Monitor tools run bounded shell checks under the same confinement as the shell tool, with explicit interval/timeout limits. They can continue after a model turn ends and deliver a later system notice to a running or newly started turn.
+- The Rust MonitorSet owns in-memory Tokio tasks and active monitor state. The Cowork client has in-memory monitor lanes. The inspected implementation does not establish that active monitor execution survives application-process termination.
+- These facilities are useful for agent delegation and short-lived waits, but they are not equivalent to a general-purpose durable, versioned workflow DAG with persisted execution state, idempotent task commits, scheduling, replay and restart recovery.
+
+HLNA should reuse Jan's subagent/task UX and agent primitives where they fit, but must not assume they satisfy durable automation. The G8 workflow prototype should explicitly distinguish persisted task/session history from the actual ability to resume an interrupted execution after process restart.
+
+Pinned sources:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/coworkPersistence.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/coworkMonitor.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/monitor.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/hooks/useCoworkSessions.ts
+
+### 10.3 Workflow engine comparison — updated evidence
+
+Cloacina 0.12.0:
+- Embedded-first Rust workflow framework; Apache-2.0.
+- Durable database-backed DAG workflows with retries, failure recovery, atomic task-completion commits and heartbeat-driven stale-claim recovery.
+- SQLite and PostgreSQL; no external broker/queue/coordinator required for embedded mode.
+- Also has event-driven in-process computation graphs, and a separate service mode with API/UI. HLNA should evaluate only the embedded library initially; do not add the service/control plane to a local desktop app without a concrete need.
+- Content-versioned workflows are a useful feature to investigate, but compatibility and migration behaviour across changed workflow definitions must be tested.
+- Strongest current fit for a durable DAG prototype, subject to tests and dependency/SQLite review.
+
+Apalis 1.2.0:
+- MIT-licensed core background-task library, with SQLite/PostgreSQL/Redis and other backends.
+- Core advertises retries, rate limits, timeouts, idempotency, scheduling, priorities, result tracking, graceful shutdown and observability.
+- The separately published apalis-sqlite backend documents durable jobs, retry/backoff, heartbeat/orphan recovery, delayed jobs and priority queues.
+- apalis-workflow is now listed in the 1.2.0 crate ecosystem, so the earlier blanket characterization of its workflow support as only an unrelated early release is outdated. Its actual semantics and stability still need a dedicated test rather than assuming parity with the core queue.
+- Stronger candidate for a general durable job queue; compare its workflow layer against Cloacina if HLNA needs both graph semantics and background workers.
+
+Jan:
+- Provides Cowork subagents, persisted session/todo/subagent state and bounded in-memory monitors, but not a demonstrated general durable workflow DAG engine.
+
+Prototype only if the baseline exposes a real gap. Use the same test workflows for both candidates: process crash during a task, restart/recovery, duplicate delivery, idempotency, atomic completion, cancellation, pause/resume, retry/backoff, scheduled jobs, workflow-definition upgrade, SQLite contention/WAL, storage growth and idle CPU/RAM. Ensure all workflow actions call the HLNA broker at execution time; workflow definitions must not preserve stale authority grants.
+
+References:
+- https://docs.rs/cloacina/latest/cloacina/
+- https://github.com/colliery-io/cloacina
+- https://docs.rs/apalis/latest/apalis/
+- https://docs.rs/apalis-sqlite/latest/apalis_sqlite/
+- https://github.com/apalis-dev/apalis
+
+### 10.4 Docling.rs — model footprint and licensing are first-class design constraints
+
+The exact v2.86.14 workspace is MIT-licensed and requires Rust 1.92 for the PDF/ASR pipeline. It is split into focused crates for core document representation, format conversion, PDF/ONNX ML processing, CLI, language bindings and optional RAG/server layers.
+
+Important deployment distinction:
+- Declarative converters for formats such as DOCX, HTML, XLSX, PPTX and EPUB can operate without downloading the ML models and PDFium assets.
+- Advanced PDF layout, OCR, table understanding, image understanding and ASR need separately downloaded model/runtime assets.
+- The release's Linux x86-64 CLI archive is approximately 22.8 MB; this is not the complete installed footprint for ML-enabled use.
+- The model notice enumerates multiple ONNX assets and their source revisions/licences. Examples include Apache-2.0 OCR and Whisper assets, Apache-2.0 layout model, CDLA-Permissive-2.0/Apache-2.0 TableFormer assets, and a separately licensed MIT figure-classifier model. PDFium has its own BSD-3-Clause and bundled dependency notices.
+- The project supplies a digest-bound model manifest, model notices, individual licence texts and export records. This provenance/attribution approach is worth preserving in HLNA's model manager.
+- Docling.rs also includes its own RAG/vector subsystem. Do not adopt that subsystem alongside Jan's vector DB by default.
+
+Proposed HLNA integration:
+1. Prototype the no-ML declarative converters first, measuring whether they outperform Jan's parser without model downloads.
+2. Add PDF layout/OCR as an optional specialist capability, downloaded only after clear user consent.
+3. Keep model/runtime assets in a separate, inspectable resource directory with pinned revision, SHA-256, source, licence and size metadata.
+4. Benchmark the actual GPU/CPU memory footprint. Do not assume the ONNX path will fit alongside Ollama on a 4 GB GPU; test CPU execution and resource scheduling as well.
+5. Normalize output into HLNA's own document representation and send it into one chosen retrieval/indexing pipeline.
+
+References:
+- https://github.com/docling-project/docling.rs/releases/tag/v2.86.14
+- https://github.com/docling-project/docling.rs/blob/v2.86.14/Cargo.toml
+- https://github.com/docling-project/docling.rs/blob/v2.86.14/docs/MODELS_NOTICE.md
+- https://github.com/docling-project/docling.rs/blob/v2.86.14/docs/MODELS.md
+- https://github.com/docling-project/docling.rs/blob/v2.86.14/CONTRIBUTING.md
+
+### 10.5 sherpa-onnx — Rust binding build behaviour confirmed
+
+The 2.0.3 Rust crate exposes safe Rust wrappers for offline and streaming ASR, TTS, VAD, speaker embeddings/diarization, punctuation, denoising and audio helpers. Its Rust example package defaults to static linking. The crate's build script can automatically download a matching native library archive when SHERPA_ONNX_LIB_DIR is not set.
+
+HLNA must not allow that implicit download in a reproducible build. Pin the exact upstream release/commit and native archive checksum, prefetch it through a verified dependency step, and set the build to consume the verified local directory. Keep microphone capture optional and user-initiated. Model/voice licences remain separate from the Apache-2.0 engine licence.
+
+References:
+- https://docs.rs/sherpa-onnx/latest/sherpa_onnx/
+- https://docs.rs/crate/sherpa-onnx/latest
+- https://github.com/k2-fsa/sherpa-onnx/tree/v2.0.3/rust-api-examples
+
+### 10.6 computer-use-linux — latest source and feature changes
+
+The current repository main Cargo manifest reports 0.7.60, Rust 1.95, MIT. Its changelog records 0.7.59/0.7.60 changes on 20–22 November 2026, including additional background input routes for GNOME and KDE Wayland and fixes for KWin environments. The crate's capabilities and exact compositor behaviour continue to evolve quickly.
+
+The GitHub Releases page surfaced v0.7.31 as the latest release tag, while current repository main, npm and crates.io metadata report newer 0.7.60 versions. This remains a provenance discrepancy; do not infer that the latest registry package corresponds to the visible GitHub release tag. Before pinning, retrieve the exact crates.io package, inspect its published checksum and source metadata, map it to a Git commit, and verify binary/source reproducibility. The manifest now also declares Rust 1.95 as its minimum, which must be checked against HLNA's chosen toolchain.
+
+A newer capability set makes the broker boundary even more important: background actions can manipulate windows without moving the user's foreground pointer/focus on supported environments. This may improve UX but increases the need for precise window/process targeting, visible activity, scoped approval, cancellation and action auditing. Keep it disabled until the user enables desktop interaction. Prefer local stdio/supervised-process integration over its optional plain-HTTP MCP listener.
+
+References:
+- https://github.com/agent-sh/computer-use-linux/blob/main/Cargo.toml
+- https://github.com/agent-sh/computer-use-linux/blob/main/CHANGELOG.md
+- https://github.com/agent-sh/computer-use-linux/blob/main/SECURITY.md
+- https://github.com/agent-sh/computer-use-linux/releases
+- https://www.npmjs.com/package/@agent-sh/computer-use-linux
+
+### 10.7 Updated disposition
+
+| Component | Current disposition | Next gate |
+|---|---|---|
+| Jan extension runtime/catalog | Retain as baseline candidate; signed-index controls are a positive finding | Test signature/key lifecycle, worker isolation, revocation, resource exhaustion and host API |
+| Jan Cowork task/subagent facilities | Reuse suitable UX and session primitives | Verify restart semantics; do not equate monitor persistence with durable workflow execution |
+| Cloacina 0.12.0 | Strongest current durable-DAG prototype candidate | Crash/restart, idempotency, versioning, SQLite and resource tests |
+| Apalis 1.2.0 + apalis-sqlite | Strong durable-job-queue comparison candidate | Verify workflow subcrate and SQLite backend semantics under the same test harness |
+| docling.rs 2.86.14 | Split adoption: declarative parsers first, ML/PDF pipeline optional | Reproduce format quality and full model/runtime footprint |
+| sherpa-onnx 2.0.3 | Voice prototype | Pin and verify native archive; model/voice licence and target-device tests |
+| computer-use-linux 0.7.60 | Leading desktop-control prototype, not approved | Resolve package-to-commit provenance and test target compositor |
+
+**No application source has been imported. HLNA v1 remains untouched.**
