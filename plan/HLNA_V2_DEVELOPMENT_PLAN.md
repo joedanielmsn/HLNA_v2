@@ -724,30 +724,49 @@ No document parser has been selected for production. No application source has b
 
 ### 15.26 Corrected Jan desktop tool-permission finding
 
-**Correction to earlier research:** Jan's `ToolPermissions::default()` at the pinned commit is not ReadOnly. Its Default implementation calls `allow_all()`, which sets `PermissionDefault::Allow`. The desktop `execute_tool` path passes this default policy and empty session grants into `resolve_decision`. That gate checks hidden-path hard-denies and explicit shell escalation first, then checks `perms.is_allowed(tool.name)` before its capability-specific read/write/exec prompt branches. The allow-all policy therefore short-circuits those later capability prompts on this call path.
+**Final source-level interpretation:** Jan's `ToolPermissions::default()` calls `allow_all()`, setting `PermissionDefault::Allow`. However, `ToolPermissions::is_allowed(name)` only checks explicit `allow` and `allow_write` pattern lists; it does not consult the default enum. The desktop `execute_tool_inner` passes this default object to `resolve_decision`, but the gate's early allow branch is based on explicit patterns. Therefore, the Allow-valued default does **not** bypass capability-specific read/write/exec handling. The default's separate significance includes MCP tool advertisement. Earlier notes that called the desktop default ReadOnly were wrong; the subsequent interpretation that it short-circuits every capability prompt was also wrong.
 
-This does not alone establish arbitrary host access: handlers, per-thread workspaces, hidden-path controls and OS sandboxing remain independent. But the earlier claim that the desktop tool path defaults to ReadOnly is incorrect. Treat the effective desktop boundary as unproven until the handler and sandbox layers are tested end-to-end. Test writes outside approved roots, attached-folder scope, symlink/path races, hidden Jan-home access, shell behavior without an enforcing jail, and escalation.
+The desktop caller then handles decisions with separate safeguards: writes inside its ephemeral thread workspace are allowed because the workspace is disposable and shell is confined; writes outside approved roots are refused; shell requires an enforcing OS jail; escalation is refused; read-only and writable attachments have separate scope. The code path should still be tested end-to-end, especially handler-level filesystem checks, symlink races, attachments, hidden Jan-home access, jail enforcement and IPC exposure.
 
 Pinned sources:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/permissions.rs
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/commands.rs
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/gate.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/sandbox.rs
 
-### 15.27 Local API server and server-side orchestration
+### 15.27 Distinct MCP execution surfaces and API orchestration
 
-Jan's Local API Server documentation says an empty API key disables authentication only for the default 127.0.0.1 bind; non-loopback binds require a key. When configured, Bearer and X-Api-Key credentials are checked, with Host/Origin validation as additional browser protections. Origin-less SDK/CLI requests are intentionally accepted by the origin policy, so origin checks cannot replace authentication.
+Jan has materially different MCP paths:
+- Desktop agent MCP uses one-use authorization bound to thread/call/tool/server/origin, server-generation checks, timeout, cancellation and output caps.
+- Jan MCP server mode reuses built-in schemas, handlers and the shared gate. It defaults to read/search/memory/skill/web; filesystem writes and shell are opt-in; paths are confined to one fixed served root; shell is sandboxed; hidden Jan home is refused.
+- The Local API Server's `/orchestrations` endpoint collects MCP tools and calls `execute_mcp_tool_calls` directly. That routine resolves server route/generation and invokes `service.call_tool` with timeout/output truncation, but does not use desktop one-use consent or per-call prompts. The route requires the explicit `enable_server_tool_execution` setting. This is a distinct headless authorization boundary.
+- MCP server activation and child-process lifecycle are separate from per-call authorization. Configured MCP servers must be treated as untrusted.
 
-The `/orchestrations` endpoint can execute configured MCP tool calls without per-call approval. It is disabled unless the user explicitly enables the Local API Server's server-side tool execution setting. That explicit setting is a useful user-consent boundary but is not a central permission broker.
+HLNA requirement: all these entry points must converge on the same Rust broker at the side-effect boundary. Enabling headless tool execution must not grant blanket permissions or bypass resource/action checks.
 
-The in-process llama.cpp worker is a separate service: it binds to 127.0.0.1 and checks a Bearer API key on every request.
+### 15.28 Authorization policy and OS sandbox research
 
-HLNA requirements:
-- Keep a local API server disabled by default. If needed, bind loopback only, require a high-entropy secret, validate Origin/Host as defense in depth, and expose only selected endpoints.
-- Do not expose headless orchestration until every individual MCP call is broker-authorized at execution time, scoped, revocable and audited.
-- Prefer private in-process Rust services or supervised stdio MCP for internal integrations. Keep inference credentials separate from agent/tool-execution credentials.
-- Test that an empty key cannot be used for non-loopback binding, that orchestration is off by default, and that enabling it never bypasses the broker.
+New candidate: **Cedar** (Apache-2.0 Rust policy engine, https://github.com/cedar-policy/cedar). It offers schema-validated RBAC/ABAC policy evaluation, deny-by-default semantics, a validator and automated-reasoning tooling. Prototype it as a policy evaluator, not as the broker or enforcement mechanism. HLNA must still authenticate the caller, construct trusted principal/action/resource/context attributes, and enforce the decision immediately before the side effect. Compare with a small typed Rust policy implementation; Cedar is only worthwhile if it improves policy expressiveness and auditability without unnecessary complexity.
 
-Pinned sources:
-- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/server/proxy.rs
-- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-llamacpp/src/engine/http.rs
-- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/docs/src/pages/docs/desktop/api-server.mdx
+Layered Linux building blocks:
+- Rust Landlock 0.4.7 (MIT/Apache-2.0, https://github.com/landlock-lsm/rust-landlock) for kernel-enforced filesystem and supported network/IPC restrictions.
+- cap-std 4.0.3 (https://github.com/bytecodealliance/cap-std) for capability-oriented filesystem APIs inside Rust code; it is not a process sandbox.
+- Jan already includes platform-specific jail machinery. Audit and benchmark it before replacing it. Any unavailable/non-enforcing backend must fail closed for operations requiring confinement.
+- Other newly surfaced sandbox crates/projects remain research-only until source, maintenance, threat model, license, kernel compatibility and adversarial tests are reviewed.
+
+### 15.29 Expanded workflow-engine comparison
+
+Beyond Cloacina and Apalis:
+- Acts 0.25.0 (https://docs.rs/acts/latest/acts/) supports YAML workflows, embedded or server mode, durable transactional transitions, branches, joins, subflows, timers and human/message actions. Promising declarative candidate; verify maintenance, licence, package execution model and storage backends.
+- Durare 0.5.0 (https://github.com/SamuelXing/durare) is a DBOS-compatible Rust durable execution library with SQLite/Postgres providers and checkpoint/recovery; Apache-2.0/MIT. Smaller community; code-first, not a visual editor.
+- Cloacina 0.12.0 remains an embedded typed DAG candidate with SQLite/Postgres, retries/recovery and content-versioning.
+- Apalis 1.2.0 remains a general background job queue; its workflow add-on is a separate release candidate and should not be treated as equally mature.
+- Prototype one primary workflow engine, not all in production. Test external side-effect idempotency, crash windows, retries, cancellation, pause/resume, workflow version migration and SQLite contention. Durable workflow state alone cannot guarantee exactly-once effects in external services.
+
+### 15.30 Voice integration refinement
+
+- sherpa-onnx 2.0.3 remains the leading unified offline ASR/TTS/VAD candidate, with Rust bindings for streaming/offline recognition, synthesis, VAD, diarization, punctuation and denoising.
+- Its Rust crate statically links by default and may download a matching native archive during build if `SHERPA_ONNX_LIB_DIR` is unset. Pin the release, archive checksum, build features and cache; no invisible floating downloads.
+- speechkit 0.5.0 (https://docs.rs/speechkit/latest/speechkit/) is a Rust convenience facade over sherpa-onnx plus optional cloud providers/audio devices. It may reduce glue code but does not remove native/model provenance requirements. Disable cloud features in local-first builds.
+- whisper-rs 0.16.0 (Unlicense) remains an ASR-only comparison with optional CUDA/Vulkan/OpenBLAS paths; it is not a unified TTS/VAD stack.
+- Benchmark actual target hardware and target languages, including CPU fallback, RAM/VRAM, cold start, latency and concurrent Ollama inference. Each voice/model has its own licence and checksum record.
