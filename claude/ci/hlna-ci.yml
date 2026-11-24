@@ -1,0 +1,19 @@
+# UNTESTED. Copy to .github/workflows/hlna-ci.yml to use.
+# Deliberately does not build the full Tauri app (slow, needs system libs); it checks the cheap, high-value things.
+name: hlna-ci
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Whitespace / conflict markers
+        run: git diff --check HEAD~1 HEAD || true
+      - name: Script syntax
+        run: for f in claude/*.sh; do bash -n "$f"; done
+      - name: Permission broker tests
+        run: cargo test --manifest-path claude/broker/Cargo.toml
+      - name: Security audit (report only)
+        run: bash claude/05_security_audit.sh || true

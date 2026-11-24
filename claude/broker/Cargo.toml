@@ -1,0 +1,9 @@
+[package]
+name = "hlna-permission-broker"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone, dependency-free permission broker core for HLNA v2 (Day 2)"
+publish = false
+
+# Intentionally no dependencies: nothing to audit or pin, builds offline.
+[dependencies]

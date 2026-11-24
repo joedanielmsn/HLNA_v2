@@ -1,37 +1,30 @@
-# claude/ - HLNA v2 Day 1 scripts
+# claude/ - HLNA v2 scripts for the 5-day plan
 
-Scripts to finish Day 1 from `HLNA_v2_Master_Handoff_Plan.md`: fix the missing
-`yarn`, build the current HLNA changes, run an isolated smoke test, and review the diff.
+Everything here was written without access to your machine or to `foundation/jan`.
+**Syntax-checked and, where noted, unit-tested in a sandbox; none of the scripts has been run against your real tree.**
+Run them in your own terminal from the repo root.
 
-**Status:** written but not run. They were written without access to your machine,
-so none of these has been executed or tested. Run them in your own terminal.
+| Day | Script | What it does | Changes files? |
+|---|---|---|---|
+| 1 | `01_check_env.sh` | find yarn/corepack, leftover builds, tool versions | no |
+| 1 | `02_build.sh` | `build:web` + `tauri build --no-bundle`, logged | build output only |
+| 1 | `03_smoke_test.sh` | run HLNA-Desktop in a disposable profile, Jan fingerprint before/after | profile dir only |
+| 1 | `04_final_checks.sh` | `git diff --check`, status, files not to commit | no |
+| 2 | `05_security_audit.sh` | grep-based audit: capabilities, updater/publisher, data isolation, permission defaults | writes a report |
+| 2 | `broker/` | tested Rust permission-broker core (16 tests) | no |
+| 3 | `06_core_check.sh` | Ollama reachable, model present, streaming at 16K, GPU placement, unload | unloads the model |
+| 4 | `07_pin_sqlite_vec.sh` | pinned, checksum-verified sqlite-vec install | writes `sqlite-vec.so` |
+| 4 | `08_package_check.sh` | build/inspect a .deb: identity, resource layout, leftover strings | build output only |
+| 4-5 | `09_acceptance.sh` | automated subset of the acceptance criteria + manual list | no |
+| 5 | `10_release.sh` | release notes draft, checksums, licenses, local tag (`--confirm`) | writes `release/` |
+| any | `run_all.sh dayN` | run a day's scripts in order, stop on first failure | as above |
 
-## Usage
-
-Run from your local checkout, on branch `work/hlna-identity-isolation`:
-
-```bash
-cd ~/Project_Assistant/HLNA_v2
-bash claude/01_check_env.sh      # find yarn, check for leftover builds (read-only)
-bash claude/02_build.sh          # build:web + tauri build --no-bundle, logged
-bash claude/03_smoke_test.sh     # launch HLNA-Desktop in a disposable profile
-bash claude/04_final_checks.sh   # git diff --check + changed-file review (read-only)
-```
-
-Stop at the first failing step and fix only that blocker.
+See `IMPROVEMENTS.md` for findings and what is still unverified.
 
 ## Safety properties
-
-- Never enters or touches `HLNA_v1`; scripts abort if the path contains it.
-- No `yarn install`, no `cargo fmt`, no package installs, no deletions.
-- Smoke test redirects `HOME`, all `XDG_*` dirs, `HLNA_DATA_ROOT` and
-  `HLNA_DATA_FOLDER` into `~/.hlna-smoke-profile` and compares a before/after
-  fingerprint of known Jan/v1 locations.
-- `04_final_checks.sh` only reads; it never stages or commits.
+- Never enters `HLNA_v1`; scripts abort if the path contains it. No `yarn install`, no `cargo fmt`, no package installs, no pushes.
+- The smoke test redirects `HOME`, all `XDG_*`, `HLNA_DATA_ROOT` and `HLNA_DATA_FOLDER` into `~/.hlna-smoke-profile`.
+- Tagging requires `--confirm` and a clean tree and never pushes.
 
 ## Overrides
-
-- `HLNA_REPO` - checkout path (default `~/Project_Assistant/HLNA_v2`)
-- `HLNA_TEST_PROFILE` - smoke-test profile dir (default `~/.hlna-smoke-profile`)
-
-Build logs go to `claude/logs/` (add to `.gitignore` or leave unstaged).
+`HLNA_REPO`, `HLNA_TEST_PROFILE`, `MODEL`, `OLLAMA`, `NUM_CTX`, `SQLITE_VEC_DEST`, `HLNA_WEBKIT_WORKAROUND=1`.
