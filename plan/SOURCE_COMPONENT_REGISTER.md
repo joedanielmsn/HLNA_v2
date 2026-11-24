@@ -819,38 +819,50 @@ Use one locally held, licence-cleared corpus with human-checked ground truth: bo
 **Updated disposition:** docling.rs remains the mature broad-feature candidate; docparse-rs is now a promising lighter Rust candidate requiring maturity/security work; pdf-inspector is a specialist PDF fast path; DocSlicer is benchmark/reference-only pending licence compatibility. No parser has been selected for production.
 
 
-## 13. Research correction and update — 2026-11-24: Jan desktop tool gate and local API server
+## 13. Research correction and update — 2026-11-24: Jan desktop tool gate, MCP routes and local API server
 
-A re-check of the exact pinned implementation found that an earlier security note incorrectly described the desktop agent's ToolPermissions default as ReadOnly. The source says otherwise. This correction supersedes the earlier statement.
+A re-check of the exact pinned implementation found that an earlier security note incorrectly described the desktop agent's ToolPermissions default as ReadOnly. A subsequent source-level re-check also corrected the interpretation of what the Allow default does. This section supersedes earlier statements.
 
-### 13.1 Critical correction: desktop ToolPermissions default is allow-all
+### 13.1 Correct interpretation: desktop ToolPermissions default is Allow, but not an allow-all gate bypass
 
 At Jan commit 49a84bdeaebdfc0f36c00f252eb638f516a48432:
-- `ToolPermissions::default()` explicitly returns `Self::allow_all()`, and `allow_all()` sets `PermissionDefault::Allow`.
-- The desktop `execute_tool` path passes `ToolPermissions::default()` and empty `SessionGrants` to the shared `resolve_decision` gate.
-- In `resolve_decision`, after hidden-path hard-denies and the explicit shell-escalation check, `perms.is_allowed(tool.name)` returns `Decision::Allow` before the capability-specific read/write/exec prompt branches.
-- Therefore, on this desktop call path, the permission object short-circuits those later capability prompts for all tools. This is not a ReadOnly default and must not be described as such.
-- This does not, by itself, prove arbitrary host writes or unsandboxed execution are possible: handler-level path checks, the per-thread workspace, hidden-path checks and OS sandbox behavior are separate controls. But the previous claim that the desktop path defaults to a ReadOnly permission policy was wrong, and the exact effective boundary needs an end-to-end test.
+- `ToolPermissions::default()` returns `Self::allow_all()`, which sets `PermissionDefault::Allow`.
+- However, `ToolPermissions::is_allowed(name)` checks only explicit `allow` and `allow_write` pattern lists. It does not consult the default enum.
+- The desktop `execute_tool_inner` passes `ToolPermissions::default()` and empty `SessionGrants` to `resolve_decision`.
+- The shared gate first applies deny rules, hidden-path checks and shell-escalation checks; then it checks explicit allow patterns; otherwise it reaches capability-specific handling. The Allow default does **not** short-circuit those capability branches.
+- Therefore the previous statement that the desktop Allow default bypasses capability prompts was incorrect. The correct statement is: desktop passes an Allow-valued default, but for built-in tool execution the gate's early allow check is based on explicit allow patterns, not that default. The default's separate significance includes MCP tool advertisement behavior.
+- Desktop then handles decisions in its caller: writes within the ephemeral thread workspace are permitted because the workspace is disposable and shell is confined; writes outside approved roots are refused; shell execution is permitted only when an enforcing jail is available; escalation is refused. Read-only attached folders and explicitly writable attachments have separate scope rules.
+- This does not remove the need for end-to-end tests. The handler comments explicitly state that the gate runs before handlers; path checks, symlink handling, attachment validation, process sandboxing and IPC command reachability are separate controls.
 
-This is a high-priority audit item. Before reusing the desktop tool layer, trace every handler and filesystem/shell sandbox, then test write attempts outside the ephemeral workspace, attached-folder behavior, shell execution with and without an enforcing jail, symlink/path races, hidden Jan-home access and escalation. Do not assume the shared gate's comments about prompt behavior accurately describe the desktop caller's effective configuration.
+Tests must cover writes outside the ephemeral workspace, attached-folder read/write scope, symlink/path races, hidden Jan-home access, shell behavior when no enforcing jail is available, and escalation. Do not describe the desktop policy as ReadOnly, but also do not claim its Allow enum makes all built-ins automatically permitted.
 
-Pinned source:
+Pinned sources:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/permissions.rs
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/commands.rs
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/gate.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/sandbox.rs
 
-### 13.2 Local API server: authentication and headless tool execution
+### 13.2 Distinct MCP execution surfaces
+
+The pinned source confirms that Jan has several materially different MCP paths:
+- Desktop agent MCP calls use a dedicated consent flow with one-use authorization bound to the thread/call/tool/server/origin, server-generation checks, timeouts, cancellation and output caps.
+- Jan's MCP server mode reuses built-in schemas, handlers and the shared gate. It defaults to read/search/memory/skill/web tools; filesystem writes and shell are opt-in; paths are confined to a fixed served project root; shell is sandboxed; hidden Jan home is refused.
+- The Local API Server's `/orchestrations` endpoint collects MCP tools and invokes the shared `execute_mcp_tool_calls` routine directly. That routine resolves a server route/generation and invokes `service.call_tool` with timeout and output truncation, but does not call the desktop one-use consent flow or a per-call user prompt. The route is guarded by the explicit `enable_server_tool_execution` setting. This is a distinct headless authorization boundary, not a desktop consent equivalent.
+- MCP stdio/HTTP/SSE server activation and process lifecycle are separate from per-call tool authorization. Treat configured remote or local MCP servers as untrusted code/services.
+
+HLNA requirement: all these entry points must converge on the same broker at the side-effect boundary. A setting that enables headless tool execution must not grant blanket permissions to all tools or bypass per-resource authorization.
+
+### 13.3 Local API server: authentication and headless tool execution
 
 Jan's Local API Server documentation and pinned implementation establish:
 - The normal local API server host is 127.0.0.1. An empty API key disables authentication only on the default loopback host; Jan refuses a non-loopback bind without a configured key.
 - When configured, requests authenticate with a Bearer token or X-Api-Key. Host-header and Origin checks add browser-origin protections; requests without an Origin are intentionally allowed for SDK/CLI clients, so Origin checks are not a substitute for authentication.
 - The server-side `/orchestrations` route can ask a model for tool calls and execute configured MCP tools without per-call approval. It is available only when the user explicitly enables the Local API Server's server-side tool execution setting.
-- This creates another independent agent execution surface. The explicit toggle is a useful consent boundary, but it is not a central policy broker, and it should not be inherited as blanket authorization for every MCP action.
 - Jan's in-process llama.cpp engine worker binds to 127.0.0.1 and checks a Bearer API key on every request. It is a distinct service from the Local API Server proxy.
 
 HLNA disposition:
 - Keep any local API server disabled by default. If needed, bind loopback only, require a high-entropy secret even on loopback, validate Origin/Host as defense in depth, and expose only explicitly selected endpoints.
-- Do not expose headless orchestration until every MCP call is broker-authorized at execution time, with scoped grants and audit. A global server-side-execution toggle is insufficient for HLNA.
+- Do not expose headless orchestration until every MCP call is broker-authorized at execution time, with scoped grants and audit.
 - Prefer a private in-process Rust service or supervised stdio MCP for internal integrations. Do not expose a broad unauthenticated localhost API to browsers or other local processes.
 - Separate inference transport credentials from agent/tool execution credentials.
 
@@ -858,15 +870,51 @@ Pinned sources:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/server/proxy.rs
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-llamacpp/src/engine/http.rs
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/docs/src/pages/docs/desktop/api-server.mdx
-- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/server/proxy.rs
 
-### 13.3 Security-gate implications
+### 13.4 Security-gate implications
 
 Add tests for:
-1. Desktop `ToolPermissions::default()` and the exact early-return ordering in `resolve_decision`.
-2. Every tool handler's own filesystem/path/sandbox checks, including symlink swaps and TOCTOU.
-3. A desktop tool call cannot write outside approved roots even if the shared policy object is allow-all.
+1. `ToolPermissions::default()` and `is_allowed()` semantics separately; ensure the default enum is not mistaken for an explicit allow-list match.
+2. Desktop `execute_tool_inner` decisions and every handler's filesystem/path/sandbox checks, including symlink swaps and TOCTOU.
+3. A desktop tool call cannot write outside approved roots.
 4. Shell execution refuses if an enforcing OS sandbox is unavailable; no escalation path is silently granted.
 5. Local API server with empty key cannot bind off-loopback; configured key is required and validated.
 6. `/orchestrations` remains disabled by default and every individual MCP call is broker-gated when enabled.
 7. Origin-less SDK/CLI requests still require credentials whenever the service is reachable outside a strictly private in-process boundary.
+8. Desktop consent, MCP server, CLI, extension and API orchestration routes all enforce the same resource/action policy at the moment of side effect.
+
+## 14. New reusable security and workflow candidates — 2026-11-24
+
+### 14.1 Cedar policy engine
+
+- Repository: https://github.com/cedar-policy/cedar
+- Apache-2.0 Rust implementation; dedicated policy language and evaluator, schema validator, CLI, symbolic compiler and automated-reasoning tooling.
+- Supports fine-grained authorization models including RBAC and ABAC; policy is separate from application code, default-deny semantics with explicit forbid precedence.
+- Strong candidate to prototype as HLNA's *policy evaluation layer*, not as the permission broker or enforcement boundary itself.
+- The broker must still authenticate the caller, construct trusted principal/action/resource/context attributes, call Cedar, and enforce the result immediately before a side effect. Never let an LLM provide trusted principal identity, resource ownership or approval state.
+- Evaluate whether Cedar adds useful policy expressiveness without making the app difficult to maintain. Compare with a small typed Rust policy engine and property-based tests. Do not assume Cedar replaces OS sandboxing.
+
+### 14.2 OS sandbox building blocks
+
+- Rust Landlock: https://github.com/landlock-lsm/rust-landlock — MIT/Apache-2.0; safe Rust abstraction for Linux Landlock, unprivileged filesystem restrictions from Linux 5.13, with later ABI extensions for network and IPC controls.
+- cap-std: https://github.com/bytecodealliance/cap-std — capability-oriented filesystem APIs; useful to reduce ambient filesystem authority in Rust code. It is not a process sandbox and does not replace kernel enforcement.
+- Cedar, cap-std and Landlock solve different layers: policy decision, in-process capability-safe APIs, and process-level kernel restrictions respectively.
+- Jan already has platform-specific jail machinery (bubblewrap/Linux, Seatbelt/macOS and AppContainer/Windows). Audit and benchmark it before replacing it. Any missing or non-enforcing backend must fail closed for operations that require confinement.
+- Newer standalone sandbox crates/projects surfaced (Sandlock, evalbox-sandbox, systemg, zandbox). Treat as research-only until source, maintenance, kernel compatibility, threat model, license and adversarial tests are independently reviewed. Do not add a young sandbox dependency merely because its feature list is broad.
+
+### 14.3 Workflow engine expansion
+
+Candidates beyond the previously shortlisted Apalis and Cloacina:
+- Acts 0.25.0: https://docs.rs/acts/latest/acts/ — YAML-defined workflows, embedded Rust engine or server, durable transactional state transitions, branches, joins, subflows, timers, human/message actions, pluggable storage. Promising for a user-authored declarative workflow model; inspect project maintenance, license, package execution model, SQLite backend and security before adoption.
+- Durare 0.5.0: https://github.com/SamuelXing/durare — DBOS-compatible Rust durable execution, SQLite/Postgres state providers, checkpoint/recovery semantics, Apache-2.0/MIT. Smaller community than established orchestration products; promising for code-first durable workflows but not a visual workflow designer.
+- Cloacina 0.12.0 remains a strong embedded DAG candidate with SQLite/Postgres, task retries/recovery and content-versioned workflows.
+- Apalis 1.2.0 remains a general durable background queue with retries, idempotency, scheduling and SQLite/Postgres backends; its workflow add-on is still a separate release candidate and should not be treated as equally mature.
+- Prototype at most one workflow engine plus a lightweight job queue only if necessary. Test crash windows around external side effects, idempotency keys, retries, cancellation, pause/resume, version migration, concurrency and SQLite contention. Durable execution cannot guarantee exactly-once effects in external systems without idempotent operations or transactional integration.
+
+### 14.4 Voice integration refinement
+
+- sherpa-onnx 2.0.3 remains the leading unified offline ASR/TTS/VAD candidate. Its Rust crate exposes offline/streaming recognition, TTS, VAD, diarization, punctuation and denoising.
+- Build-provenance caveat remains: the Rust crate statically links by default and may download a matching prebuilt native archive during build when `SHERPA_ONNX_LIB_DIR` is unset. HLNA must pin release, archive checksum, build feature set and cache; do not allow an invisible floating build-time download.
+- speechkit 0.5.0: https://docs.rs/speechkit/latest/speechkit/ is a Rust convenience facade over sherpa-onnx plus optional cloud providers and audio devices. It may reduce integration work, but does not replace the underlying runtime or remove model/native-library provenance work. Inspect feature defaults carefully and disable cloud providers for the local-first build.
+- whisper-rs 0.16.0 remains a focused ASR comparison, Unlicense, with optional CUDA/Vulkan/OpenBLAS/Metal feature paths. It is not a unified TTS/VAD stack.
+- Evaluate ASR/TTS model size, language quality (especially user's target languages), latency, RAM/VRAM, cold start, CPU fallback and concurrent Ollama performance on the actual target PC. Keep voice models optional downloads with independent licence and checksum records.
