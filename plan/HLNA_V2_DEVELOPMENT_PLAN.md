@@ -576,3 +576,68 @@ Pinned sources:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/extensions/vector-db-extension/src/index.ts
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/extensions/rag-extension/src/index.ts
 
+
+
+### 15.14 Extension signing and trust model — deeper audit
+
+Jan's pinned extension catalogue has user-pinned Ed25519 signing keys, strict detached-signature verification over exact index bytes, signed-index freshness/expiry checks, SHA-512 SRI for extension tarballs, and manifest ID/version/permission matching before the user grants permissions. This is a positive baseline for HLNA's extension supply chain. Jan does not ship a universal trust key: the user pins the source key. Unsigned sources and local packages remain possible and must be clearly distinguished. An optional provenance-attestation URL is displayed as reported by the source but is not verified by Jan.
+
+HLNA should preserve the separation between:
+- publisher identity/integrity (signature and pinned key),
+- package integrity (digest),
+- build provenance (independently verified attestation),
+- runtime permission (HLNA broker grant),
+- and actual behaviour (sandbox and host API enforcement).
+
+A valid signature does not make code safe. Test key rotation, revocation, expiry, rollback, downgrade, package extraction limits and update permission diffs. Every extension action must still pass through the broker at execution time.
+
+Pinned source:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/signature.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/index.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/install.rs
+
+### 15.15 Jan background-task capability boundary
+
+Jan's Cowork implementation already offers subagent dispatch, task/todo state, and bounded background monitors. Finished subagent state is persisted with Cowork sessions. Monitor execution itself is held in in-memory Rust task sets and client-side lanes; the inspected implementation does not establish durable monitor recovery after application-process termination.
+
+Therefore:
+- Reuse Jan's Cowork UX, subagent and task primitives where useful.
+- Do not treat a persisted task transcript or completed-subagent record as proof that an interrupted execution can resume.
+- Do not assume Jan provides a general-purpose durable, versioned workflow DAG engine.
+- Keep Cloacina and Apalis as prototype candidates only if HLNA needs restart-safe automation beyond these facilities.
+
+### 15.16 Workflow-engine comparison update
+
+Cloacina 0.12.0 is currently the stronger durable-DAG prototype candidate: embedded Rust library, Apache-2.0, SQLite/PostgreSQL, durable workflow graphs, retries, recovery, atomic task-completion commits and heartbeat-driven stale-claim recovery. Its separate server/control-plane mode is not needed for the initial desktop product.
+
+Apalis 1.2.0 is a strong general job-queue comparison: MIT-licensed core with retries, timeouts, idempotency, scheduling, priorities and observability. The apalis-sqlite backend documents persistent jobs, retry/backoff, heartbeat/orphan recovery, delayed jobs and priorities. Its workflow crate is now listed in the 1.2.0 ecosystem; test its actual semantics rather than relying on earlier maturity assumptions.
+
+Jan's in-memory monitor tasks and persisted Cowork session state are a useful third baseline, but not an equivalent durable DAG system. Compare Cloacina and Apalis with identical crash/restart, duplicate-delivery, idempotency, cancellation, pause/resume, retry, scheduled-job, workflow-version and SQLite-contention tests. Do not adopt both automatically.
+
+### 15.17 Docling.rs deployment and model policy
+
+Docling.rs v2.86.14 is an MIT Rust workspace with separate crates for document conversion, PDF/ONNX processing, ASR, FFI and optional RAG/server features. Declarative converters for Office/HTML/EPUB formats can run without the ML model bundle; advanced PDF layout, OCR, tables and ASR require additional model/runtime assets.
+
+The compact Linux CLI archive is not the full ML-enabled footprint. The model catalogue includes assets under multiple separate licences (including Apache-2.0, MIT, CDLA-Permissive-2.0 and BSD-3-Clause for PDFium), with source revisions and digest/provenance records. HLNA must keep model licensing and hashes alongside each downloaded asset.
+
+Prototype simple non-ML conversions first. Add the ML/PDF path as an optional, explicitly downloaded capability, then benchmark CPU/RAM/GPU coexistence with Ollama. Do not enable Docling's RAG subsystem by default; normalize its document output into HLNA's selected indexer.
+
+### 15.18 Voice native-build reproducibility
+
+The sherpa-onnx 2.0.3 Rust API supports streaming/offline ASR, TTS, VAD and related speech functions. Its static Rust build can automatically download a native archive when SHERPA_ONNX_LIB_DIR is not configured. HLNA builds must instead prefetch a pinned native archive, verify its checksum, and point the build at the verified local copy. Model and voice licences remain independent of the Apache-2.0 engine licence.
+
+### 15.19 Computer-use-linux provenance update
+
+Current repository main reports computer-use-linux 0.7.60 and Rust 1.95; its changelog includes recent background input changes for GNOME and KDE Wayland. The GitHub Releases page still surfaced v0.7.31, so package version and GitHub release tag are not interchangeable. Before adoption, map the exact crates.io package checksum/source metadata to a source commit and verify the release assets. Keep desktop observation and mutation behind separate broker grants, visible activity and immediate revoke/stop. Keep the optional HTTP MCP listener disabled; use a supervised local process if the component is adopted.
+
+### 15.20 Updated research conclusions
+
+- Jan remains the conditional desktop foundation; build and test the unmodified pinned baseline before changing it.
+- Jan's extension signing controls are worth retaining as a starting point, while the Worker runtime still needs resource/isolation review.
+- Jan's Cowork task facilities cover agent-oriented background activity but do not replace durable workflow orchestration.
+- Cloacina is the leading durable-DAG prototype; Apalis is the job-queue comparison.
+- Docling.rs should be tested in two stages: no-ML converters first, optional model-backed PDF/OCR later.
+- sherpa-onnx remains the voice prototype, subject to pinned native dependencies and model licensing.
+- computer-use-linux remains the leading Linux desktop-control prototype, pending source provenance and target-compositor tests.
+
+All choices remain provisional until reproducible tests on the target Linux machine. No third-party application source has been imported, and HLNA v1 remains untouched.
