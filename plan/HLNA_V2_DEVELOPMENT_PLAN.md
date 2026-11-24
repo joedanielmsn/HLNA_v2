@@ -512,3 +512,28 @@ Jan remains the conditional starting foundation because it most closely matches 
 - **Ambient** demonstrates Tauri/Rust desktop awareness and agent features, but its bundled llama.cpp and cloud-service assumptions do not match the initial Ollama-first, privacy-first architecture.
 
 The source component register contains the comparison references. No alternative is ruled out forever: a clean baseline build, deeper module inspection or measured prototype may change the foundation decision.
+
+
+### 15.11 Exact agent-permission and identity-migration audit
+
+A deeper pass over the pinned Jan source refines the earlier security notes:
+
+- The desktop agent path is not the same as the CLI/API orchestration path. Jan's desktop chat tool loop is driven in TypeScript (custom-chat-transport.ts) and invokes Rust IPC commands in src-tauri/plugins/tauri-plugin-agent-tools/src/commands.rs.
+- The desktop execute_tool implementation resolves the tool gate in Rust using ToolPermissions::default(). At the pinned revision, PermissionDefault defaults to ReadOnly. The desktop path also checks workspace roots and hidden paths.
+- Desktop writes are confined to a per-thread ephemeral workspace; writing to an attached user folder is a separate opt-in path. A write escaping the workspace is refused. The desktop shell is exposed only when an enforcing OS sandbox is available; otherwise it is refused rather than run unconfined. Escalation outside the sandbox is refused on this surface.
+- This is a useful security baseline to preserve, not proof that all Jan surfaces are safe. The CLI has a separate permission/configuration path, and MCP server consent, extension APIs, updater, web search, and other privileged routes still need independent tracing. HLNA's broker remains necessary to unify policy across all surfaces.
+- Correction to the earlier wording: the pinned loop.rs accepts a ToolPermissions value; it does not itself call ToolPermissions::allow_all(). The constructor is defined in the permission module and appears in tests at this pinned ref. Do not attribute a permissive default to the shared loop without tracing the caller.
+- Jan's app configuration migration is a particularly important identity boundary. core/app/commands.rs searches legacy Jan bundle-ID/package-name locations, copies a legacy settings file into the canonical location, and then attempts to remove the old copy. HLNA must disable/replace this migration and recovery logic; changing only the bundle identifier, product name, or data-root environment variables is not sufficient. No HLNA first-run or migration code may probe, copy, rename, or delete Jan/v1 data.
+- The pinned Tauri config permits broad HTTP(S) connectivity, includes PostHog hostnames in CSP, and configures Jan updater endpoints. The default capability file includes shell spawning, broad HTTP URL scopes, updater and multiple powerful plugins; its opener path scope is broad. HLNA must remove analytics/updater integrations and replace inherited capabilities/CSP with a small, explicit per-window allowlist.
+- Jan's scripts/download-bin.mjs downloads Bun and uv from floating latest URLs and fetches sqlite-vec release assets dynamically. HLNA's build should pin tool versions and exact asset hashes/signatures, cache verified artifacts, and make network access during builds explicit. The sqlite-vec download is optional and the source code documents a linear-search fallback.
+
+Pinned source paths:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/agent/loop.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/commands.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/permissions.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/gate.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/app/commands.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/tauri.conf.json
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/capabilities/default.json
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/scripts/download-bin.mjs
+
