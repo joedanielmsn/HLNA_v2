@@ -941,3 +941,12 @@ Extension runtime review:
 - Accepted caveats in the source: DNS resolution is not pinned/validated against the granted hostname; system/environment proxy configuration can route requests through the user's proxy. Host grants are hostname-level, so HLNA should consider DNS rebinding/private-address protections and redirects as explicit threat-model items.
 - The JavaScript Worker is not an OS process sandbox. Do not treat worker separation or WebAssembly availability as CPU/memory/OS isolation.
 - Reuse the installer/grant-diff model only after independent review of key rotation, source trust, signature verification, rollback, safe-mode recovery, package extraction, dispatcher exhaustiveness and revocation races. All extension host calls must still be routed through HLNA's central broker; do not give extensions direct Tauri IPC access.
+
+
+### 14.6 DBOS Rust SDK comparison
+
+- Official DBOS Rust SDK: https://github.com/dbos-inc/dbos-transact-rust
+- The published Rust `dbos` crate is currently 0.6.0 and explicitly marked pre-production / not production-supported; its documented backend is PostgreSQL.
+- Durare 0.5.0 is a community DBOS-compatible SDK with SQLite and PostgreSQL providers, but is not the official DBOS Rust SDK. It is Apache-2.0/MIT and currently has a smaller community.
+- For HLNA's embedded desktop/local-first SQLite design, official DBOS Rust is currently a reference candidate rather than a direct fit. Durare is worth a prototype alongside Cloacina/Acts, with special scrutiny of external side-effect semantics and crash recovery.
+- Do not equate replay/checkpoint guarantees with exactly-once external effects. Use idempotency keys, transactional outbox/inbox patterns where possible, and reconciliation for operations that cross database/process/network boundaries.
