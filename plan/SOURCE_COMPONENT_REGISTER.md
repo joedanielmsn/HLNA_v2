@@ -458,3 +458,24 @@ Pinned source:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/install.rs
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/state.rs
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/permissions.rs
+
+
+### 9.12 Vector database findings and reuse conditions
+
+The pinned Jan vector database is a practical SQLite baseline with ordinary chunk storage, optional sqlite-vec ANN indexing, and linear cosine-similarity fallback. The source also validates embeddings against empty/non-finite values and handles ANN insert failures without losing the linear record. However, the following must be resolved before production reuse:
+
+1. **Native code loading:** the sqlite-vec loader searches JAN_SQLITE_VEC_PATH, development and executable-relative paths, system directories, and bare library names. Since SQLite extension loading executes native code inside HLNA, use only a bundled, hash-verified, pinned artifact from an application-owned resource path. Do not inherit arbitrary environment/system/bare-name lookup. Disable extension loading after the trusted load where supported.
+2. **Delete consistency:** chunks are inserted into both chunks and chunks_vec, but the inspected delete_file and delete_chunks implementations delete only from chunks. Add synchronized deletion and tests for orphan rows, reinsertions, rowid reuse, collection cleanup and restart. Until then, ANN correctness and storage growth need validation.
+3. **Embedding identity:** persist model name/revision, vector dimension, tokenizer and chunking version with each collection. Build replacement indexes separately and switch only after successful verification; never silently mix models/dimensions or destroy the only valid index.
+4. **Duplicate inference:** project ingestion embeds chunks once to discover dimension and then calls embedTexts again for insertion. Preserve the first result and reuse it. Benchmark the saved inference cost on the target hardware.
+5. **Chunking/provenance:** the Rust helper chunks by Unicode character count. HLNA should use the embedding model's tokenizer and preserve page/section metadata through retrieval.
+6. **Operational policy:** establish SQLite WAL/busy timeout/checkpoint, backup and concurrent indexing behaviour. Test collection/file deletion and recovery.
+
+Disposition: retain as a correctness/performance benchmark baseline only. Do not add another vector database until these issues are tested and a reproducible retrieval benchmark demonstrates a material need.
+
+References:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-vector-db/src/db.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-vector-db/src/commands.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/extensions/vector-db-extension/src/index.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/extensions/rag-extension/src/index.ts
+
