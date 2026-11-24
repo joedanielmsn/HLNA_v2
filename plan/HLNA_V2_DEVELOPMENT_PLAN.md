@@ -628,7 +628,7 @@ The sherpa-onnx 2.0.3 Rust API supports streaming/offline ASR, TTS, VAD and rela
 
 ### 15.19 Computer-use-linux provenance update
 
-Current repository main reports computer-use-linux 0.7.60 and Rust 1.95; its changelog includes recent background input changes for GNOME and KDE Wayland. The GitHub Releases page still surfaced v0.7.31, so package version and GitHub release tag are not interchangeable. Before adoption, map the exact crates.io package checksum/source metadata to a source commit and verify the release assets. Keep desktop observation and mutation behind separate broker grants, visible activity and immediate revoke/stop. Keep the optional HTTP MCP listener disabled; use a supervised local process if the component is adopted.
+Current repository main reports computer-use-linux 0.7.60 and Rust 1.95; its changelog includes recent background input changes for GNOME and KDE Wayland. Source mapping is now established: GitHub commit 31d34d65becd36a5796c5cc13c01fa4fce62c46a contains Cargo/package version 0.7.60 and a changelog comparison link for v0.7.59...v0.7.60. The earlier Releases-page result showing v0.7.31 was stale/incomplete. Before adoption, verify the published crates.io archive checksum and release binaries against this exact commit and reproduce the build. Keep desktop observation and mutation behind separate broker grants, visible activity and immediate revoke/stop. Keep the optional HTTP MCP listener disabled; use a supervised local process if the component is adopted.
 
 ### 15.20 Updated research conclusions
 
@@ -641,3 +641,19 @@ Current repository main reports computer-use-linux 0.7.60 and Rust 1.95; its cha
 - computer-use-linux remains the leading Linux desktop-control prototype, pending source provenance and target-compositor tests.
 
 All choices remain provisional until reproducible tests on the target Linux machine. No third-party application source has been imported, and HLNA v1 remains untouched.
+
+
+### 15.21 Voice-engine alternatives and model licensing
+
+Keep whisper.cpp/whisper-rs 0.16.0 as an ASR-only benchmark against sherpa-onnx. whisper.cpp supports CPU execution and optional NVIDIA/Vulkan acceleration; whisper-rs provides Rust bindings but does not provide the same complete ASR/VAD/TTS breadth as sherpa-onnx. Avoid shipping both engines unless measured quality or performance requires it.
+
+Piper is not a default choice: the current OHF-Voice engine is GPL-3.0-or-later, its current focus is Python, and its voice models have independent licences and potentially inherited dataset restrictions through their fine-tuning chains. Review the complete MODEL_CARD/training lineage for any voice considered; a voice's display name or its immediate dataset licence is not enough. Reconsider only after HLNA's final distribution/licensing model and the integration route are settled.
+
+sherpa-onnx remains the unified voice prototype because it exposes Rust APIs for streaming/offline ASR, TTS and VAD. Every selected model/voice still needs its own provenance, checksum and licence record. The engine licence does not grant rights to model weights or voice recordings.
+
+References:
+- https://github.com/ggml-org/whisper.cpp
+- https://docs.rs/crate/whisper-rs/latest
+- https://github.com/OHF-Voice/piper1-gpl
+- https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md
+- https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/COMMERCIAL_USE.md
