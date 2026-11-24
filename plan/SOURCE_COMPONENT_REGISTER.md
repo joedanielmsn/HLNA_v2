@@ -918,3 +918,26 @@ Candidates beyond the previously shortlisted Apalis and Cloacina:
 - speechkit 0.5.0: https://docs.rs/speechkit/latest/speechkit/ is a Rust convenience facade over sherpa-onnx plus optional cloud providers and audio devices. It may reduce integration work, but does not replace the underlying runtime or remove model/native-library provenance work. Inspect feature defaults carefully and disable cloud providers for the local-first build.
 - whisper-rs 0.16.0 remains a focused ASR comparison, Unlicense, with optional CUDA/Vulkan/OpenBLAS/Metal feature paths. It is not a unified TTS/VAD stack.
 - Evaluate ASR/TTS model size, language quality (especially user's target languages), latency, RAM/VRAM, cold start, CPU fallback and concurrent Ollama performance on the actual target PC. Keep voice models optional downloads with independent licence and checksum records.
+
+
+### 14.5 Jan jail backend caveat and extension-network review
+
+The exact pinned Jan jail source documents three platform backends:
+- Linux bubblewrap, macOS Seatbelt via the absolute `/usr/bin/sandbox-exec` path, Windows AppContainer.
+- Intended common policy: writes only to thread workspace/private temp; network denied unless explicitly allowed; desktop masks the Jan data folder and hides the Jan home; shell is withheld if no enforcing backend exists.
+- AppContainer has a stricter default read surface (system paths granted to ALL APPLICATION PACKAGES) but has no read-only workspace policy. Jan refuses a read-only workspace under that backend rather than making it writable.
+- **Windows-specific caveat:** Jan's jail source explicitly says AppContainer does not enforce the `hide_root` subpath mask; only the command-token scan remains for hiding Jan home there. This differs from Linux bubblewrap and macOS Seatbelt. It must be tested and may require a stronger Windows-specific policy or a narrower set of exposed paths.
+- Linux detection relies on locating bubblewrap; the policy implementation must be tested with the actual installed binary/version, kernel and desktop session. Never assume backend availability based only on OS name.
+- The command token scan is best-effort and is not a replacement for the OS sandbox. Keep escalation unavailable in HLNA unless a separately designed, user-confirmed privileged workflow exists.
+
+Pinned source:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/jail.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/appcontainer.rs
+
+Extension runtime review:
+- Jan's extension install pipeline stages bundles, validates manifest/host API version, caps compressed package size, verifies indexed tarball integrity, and records whether the index signature was verified. Updates compute permission diffs; entry source is hash-checked when read; safe mode can disable all extensions.
+- HTTP requests are mediated through a Rust client without cookie storage and automatic redirects disabled; request methods, headers and body size are constrained, response size/stream/timeouts and concurrent requests are capped, and the local API server port is blocked.
+- Host methods use an exhaustive permission-policy table and validate arguments before checking grants. Built-in extensions have their manifest-requested permissions; installed extensions use user grants.
+- Accepted caveats in the source: DNS resolution is not pinned/validated against the granted hostname; system/environment proxy configuration can route requests through the user's proxy. Host grants are hostname-level, so HLNA should consider DNS rebinding/private-address protections and redirects as explicit threat-model items.
+- The JavaScript Worker is not an OS process sandbox. Do not treat worker separation or WebAssembly availability as CPU/memory/OS isolation.
+- Reuse the installer/grant-diff model only after independent review of key rotation, source trust, signature verification, rollback, safe-mode recovery, package extraction, dispatcher exhaustiveness and revocation races. All extension host calls must still be routed through HLNA's central broker; do not give extensions direct Tauri IPC access.
