@@ -238,7 +238,7 @@ Important caveats:
 - Its HTTP MCP mode is optional and documented as unencrypted; prefer stdio/local process integration. Never expose it on a network without a separately reviewed secure transport.
 - The project states that shell execution is optional and disabled unless explicitly enabled. HLNA should keep shell execution out of this integration.
 - The repository security policy says only the latest release is supported for security updates. Maintain a regular update review.
-- The crates.io version observed (0.7.59) is newer than the latest GitHub release tag surfaced during the search (v0.7.31). Resolve this release/tag discrepancy and pin a verifiable source commit before adoption.
+- The initial registry/release-page discrepancy is resolved at source level: commit 31d34d65becd36a5796c5cc13c01fa4fce62c46a contains Cargo/package version 0.7.60 and the changelog links the v0.7.60 tag comparison. Verify the published crate archive checksum against this exact source before adoption.
 
 Proposed HLNA approach:
 1. Prototype the latest verifiable source revision on the actual target desktop session.
@@ -429,7 +429,7 @@ References:
 
 ### 9.10 Desktop-control package version discrepancy — unresolved
 
-The GitHub Releases page currently identifies signed release tag v0.7.31 (commit cc38489) as its latest tagged release, while docs.rs currently presents crates.io package computer-use-linux 0.7.59. These are not interchangeable version identifiers. Before adoption, establish the exact crates.io source provenance, corresponding Git commit/tag, release assets, signatures/checksums and dependency graph. Do not pin a floating latest package or infer that the crates.io package is identical to the latest GitHub release.
+The initial Releases-page result was stale/incomplete. A GitHub source search found the exact v0.7.60 source commit 31d34d65becd36a5796c5cc13c01fa4fce62c46a: Cargo.toml and package.json both declare 0.7.60, and CHANGELOG.md links the v0.7.59...v0.7.60 comparison. This resolves the source-version mapping, although the GitHub Releases listing surfaced only v0.7.31 in the earlier page result. Before adoption, still verify the exact crates.io archive checksum against this commit, release assets and dependency graph. Do not pin a floating latest package.
 
 The project remains a strong Linux desktop-control prototype, but all observation and mutation must be mediated by HLNA's broker. Its on-screen activity indicator is a useful UX/security feature to evaluate. Test the target compositor, portal consent, focus validation, accessibility data exposure, stale-target handling, input correctness and stop/revoke behavior. Never expose its full MCP toolset directly to the model.
 
@@ -618,3 +618,25 @@ References:
 | computer-use-linux 0.7.60 | Leading desktop-control prototype, not approved | Resolve package-to-commit provenance and test target compositor |
 
 **No application source has been imported. HLNA v1 remains untouched.**
+
+
+### 10.8 Voice alternatives — focused comparison
+
+**whisper.cpp / whisper-rs**
+- whisper.cpp is a mature C/C++ Whisper inference implementation with CPU support and optional NVIDIA, Vulkan, ROCm and other acceleration paths.
+- whisper-rs 0.16.0 provides Rust bindings and is Unlicense; it is an ASR-specific comparison, not a complete ASR/VAD/TTS stack.
+- Keep it in the voice benchmark as a focused transcription-quality/resource comparison against sherpa-onnx. Do not add it alongside sherpa-onnx in the shipped product unless tests demonstrate a material benefit.
+
+**Piper**
+- The current OHF-Voice piper1-gpl engine is GPL-3.0-or-later and its present development focus is Python; a C API is described as planned rather than an established stable Rust integration.
+- Voice model rights are separate from the engine. Each voice has a MODEL_CARD, and its training lineage can carry restrictions from upstream/base voices. Some common historical voice families are derived from datasets that exclude commercial use; model names alone are not sufficient to establish rights.
+- This is not a default HLNA TTS choice. Reconsider only if HLNA's final distribution licence is compatible, a specific voice's complete training chain is reviewed, and a stable integration path is demonstrated. Keep model cards and notices with any redistributed voice.
+- sherpa-onnx remains the better unified prototype because it exposes Rust APIs for ASR, TTS and VAD, but its individual models/voices still require separate review.
+
+References:
+- https://github.com/ggml-org/whisper.cpp
+- https://docs.rs/crate/whisper-rs/latest
+- https://github.com/OHF-Voice/piper1-gpl
+- https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md
+- https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/COMMERCIAL_USE.md
+- https://github.com/k2-fsa/sherpa-onnx
