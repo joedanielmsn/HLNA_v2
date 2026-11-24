@@ -12,7 +12,9 @@ pgrep -af 'tauri build|cargo build|rustc' || echo "none running"
 info "Tool locations and versions"
 for t in node npm cargo rustc git cmake corepack yarn; do
   if command -v "$t" >/dev/null 2>&1; then
-    printf '%-9s %s  (%s)\n' "$t" "$(command -v "$t")" "$("$t" --version 2>&1 | head -1)"
+    # cd into the pinned project (yarn/corepack read packageManager there), no prompts, no stdin, 15s cap
+    v="$(cd "$JAN_DIR" 2>/dev/null; COREPACK_ENABLE_DOWNLOAD_PROMPT=0 timeout 15 "$t" --version </dev/null 2>&1 | head -1)"
+    printf '%-9s %s  (%s)\n' "$t" "$(command -v "$t")" "${v:-no version / timed out}"
   else
     printf '%-9s MISSING\n' "$t"
   fi

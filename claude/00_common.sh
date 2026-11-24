@@ -34,5 +34,8 @@ setup_yarn() {
   else
     die "Neither 'yarn' nor 'corepack' found. Check $TOOLS_BIN and your Node install."
   fi
-  info "Yarn command: ${YARN[*]}  (version: $("${YARN[@]}" --version 2>&1 | tail -1))"
+  # Run from the pinned project dir, never prompt, never wait on stdin, never hang.
+  local v
+  v="$(cd "$JAN_DIR" 2>/dev/null && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 timeout 30 "${YARN[@]}" --version </dev/null 2>&1 | tail -1)"
+  info "Yarn command: ${YARN[*]}  (version: ${v:-unknown/timed out})"
 }
