@@ -348,3 +348,153 @@ For every important component, maintain a short comparison record:
 - Known limitations and replacement triggers.
 
 **Final rule: HLNA's quality comes first. Existing code, frameworks, architecture choices and previous investments are all replaceable when a better option is demonstrated.**
+
+
+## 15. Research-backed architecture update — 2026-11-24
+
+This update records the current best-supported direction after inspecting Jan's pinned source and comparing specialist projects. It refines the candidate list; it does not waive the build, licence, security or benchmark gates.
+
+### 15.1 Recommended architecture shape
+
+Use a **modular desktop application**, not a collection of unrelated services:
+
+1. **Tauri 2 + Rust application shell** based on Jan only after the upstream baseline is reproducibly built and audited.
+2. **React frontend** for chat, history, settings, dashboard and workflow authoring, with a small typed IPC surface.
+3. **Rust domain/core layer** for application lifecycle, storage contracts, model/provider registry, event coordination and permission enforcement.
+4. **One central permission broker** through which every agent tool, extension, MCP tool, workflow action and desktop action must pass.
+5. **Ollama as the initial local inference process**, called over its local OpenAI-compatible API. Do not link another inference engine into the desktop binary without measured justification.
+6. **Existing Jan SQLite/RAG components as the first benchmark baseline**, adapted to HLNA paths and identity. Do not add sqlite-vec or another vector store until a reproducible retrieval test shows a gap.
+7. **Optional specialist workers** for expensive document and voice operations. Start them only when needed; keep models/downloads explicit and user-controlled.
+8. **One durable workflow/job subsystem**, selected after a comparative prototype. Do not add Apalis and Cloacina together by default.
+9. **Existing Jan extension architecture as the initial plugin baseline**. Do not add Extism as a second Wasmtime runtime unless a concrete compatibility/security advantage is demonstrated.
+
+### 15.2 Permission broker — the critical HLNA-owned boundary
+
+The permission broker is not optional glue. It is the security boundary shared by the entire product.
+
+Every capability request should include:
+- Requesting principal (user, built-in agent, named extension, MCP server or workflow).
+- Requested action and target resource.
+- Scope (specific file, directory, application, window, provider or service).
+- Risk classification and whether the action is read-only or mutating.
+- User grant source, expiry and revocation state.
+- Correlation ID for audit and cancellation.
+
+The broker should:
+- Default to deny.
+- Distinguish observation from mutation.
+- Prefer narrow, one-action or one-task grants over broad permanent grants.
+- Require fresh confirmation for high-impact or ambiguous actions.
+- Support immediate stop and grant revocation.
+- Enforce permissions in Rust, not only in the frontend or model prompt.
+- Record approvals, denials, execution results and cancellation in a local audit log.
+- Be tested against direct IPC calls, alternate agent entry points, MCP calls, nested workflows and tool-output prompt injection.
+
+No plugin, workflow engine or desktop-control backend should be allowed to bypass this broker.
+
+### 15.3 Desktop interaction recommendation
+
+Prototype `computer-use-linux` as the leading Linux implementation candidate. It offers semantic AT-SPI interaction, screenshots and compositor-aware window/input handling, but support is not uniform across every desktop/session. Its latest crate version observed was 0.7.59 (2026-11-20), while the GitHub Releases page surfaced v0.7.31 as its latest release tag; resolve the version/source discrepancy and pin an auditable commit.
+
+Preferred integration experiment:
+- First inspect the crate's internal module boundaries and dependency graph.
+- Compare importing low-level Rust modules behind HLNA's broker against running a separately supervised local process.
+- Do not expose its complete MCP tool set directly to the agent.
+- Do not enable its optional shell tool.
+- Keep its HTTP MCP listener disabled; use a local process/stdio boundary if a separate process is selected.
+- Test AT-SPI, portal screenshots, focus and input on the actual desktop session. Verify both successful and fail-closed behaviour.
+- Provide visible activity indication and a global stop mechanism.
+
+The earlier `lindoelio/computer-use` project is no longer the primary candidate. It may remain a reference for narrow implementation ideas only.
+
+### 15.4 Document and retrieval recommendation
+
+Use a two-stage decision:
+1. Keep Jan's current parser/vector database as the simple baseline and measure its quality and supported formats.
+2. Prototype `docling.rs` 2.86.14 for complex PDFs, OCR, reading order and tables. Compare it with Python Docling and lightweight parsers.
+
+Do not adopt docling.rs's full RAG subsystem initially because it may duplicate Jan's embeddings/vector search. The first integration should normalize parsed documents into a common HLNA document representation, then feed the existing chosen indexer.
+
+Test corpus should include:
+- Searchable and scanned PDFs.
+- Multi-column layouts and tables.
+- DOCX, PPTX, XLSX and HTML.
+- Mixed-language documents and Unicode.
+- Large documents and malformed files.
+- Repeated imports, updates and deletion.
+
+Measure extraction correctness, table fidelity, page/section provenance, indexing time, query latency, RAM/CPU and model footprint. Upstream benchmark numbers are hypotheses until reproduced locally.
+
+### 15.5 Voice recommendation
+
+Prototype sherpa-onnx 2.0.3 as the broad offline speech stack because it provides Rust APIs and upstream Tauri examples for ASR/VAD/TTS. Compare Whisper/whisper-rs for ASR-specific quality and resource use.
+
+Build requirements:
+- Pin native libraries and checksums; no hidden build-time downloads.
+- Audit each model/voice licence separately from the engine licence.
+- Do not bundle large models by default.
+- Make microphone use explicit and visible.
+- No background recording or remote audio transmission by default.
+- Test streaming partial results, interruption, device selection, silence/noise, language support and CPU/GPU load.
+
+### 15.6 Workflow recommendation
+
+Prototype Cloacina and Apalis against the same representative workflows:
+- Cloacina appears closer to durable DAG workflows and event-driven computation graphs with SQLite/PostgreSQL persistence.
+- Apalis appears stronger as a general background task/worker queue with retries, scheduling and SQLite storage. Its workflow subcrate has a separate maturity status and must not be treated as equally mature as the core queue.
+- Neither supplies HLNA's visual workflow editor/recorder or the permission model.
+
+Do not select an engine based on feature lists alone. Test process termination/restart, duplicate delivery, idempotency, retry policy, cancellation, pause/resume, workflow version changes, SQLite contention and resource usage. If Jan's current facilities are sufficient, do not add another engine.
+
+### 15.7 Plugin and extension recommendation
+
+Retain Jan's existing extension runtime as the first baseline. Inspect its worker lifecycle, integrity checks, manifest validation, host API and Wasmtime configuration.
+
+Extism remains deferred because:
+- It would add or duplicate a Wasmtime-based runtime.
+- Its default feature set includes filesystem and HTTP capabilities.
+- These features must not become ambient plugin privileges.
+
+If Extism is later selected, build with a minimal feature set and define explicit host functions for each granted capability. Treat extension code as untrusted.
+
+### 15.8 Storage and process boundaries
+
+Keep the initial product local and self-contained:
+- Prefer SQLite and existing Rust persistence components where appropriate.
+- Use clear per-domain database ownership/migrations; do not let multiple independent subsystems mutate the same tables.
+- Evaluate a separate workflow database file if durable workflow writes contend with conversation/RAG workloads.
+- Keep credentials out of ordinary application settings and frontend storage; select a platform-appropriate secret store during the security audit.
+- Treat Ollama, document/voice workers and optional desktop-control backends as separate trust boundaries with explicit lifecycle, health checks and shutdown.
+- Avoid opening network listeners unless a user explicitly enables a feature that requires one.
+
+### 15.9 Revised phase gates
+
+| Gate | Required evidence before proceeding |
+|---|---|
+| G0 — Requirements | Every master-plan capability mapped to acceptance criteria and a proposed implementation path |
+| G1 — Jan baseline | Exact pinned source builds and launches unmodified on target Linux; upstream tests and baseline metrics recorded |
+| G2 — Identity/privacy | HLNA paths/identifier verified; no Jan/v1 data touched; no Jan analytics/updater traffic; network calls inventoried |
+| G3 — Security core | Permission broker design reviewed; all privileged routes inventoried; deny-by-default tests pass |
+| G4 — Core assistant | Ollama chat, persistence, streaming, cancellation and restart recovery pass |
+| G5 — Knowledge | Corpus benchmark selects parser/indexer; document deletion and source provenance work |
+| G6 — Agents/extensions | All tools route through broker; extension isolation and revocation tests pass |
+| G7 — Desktop/voice | Target desktop interaction and voice prototypes pass capability-specific tests; privacy controls verified |
+| G8 — Workflows/resources | Durable recovery, idempotency and gaming/resource policies pass tests |
+| G9 — Release | SBOM/licences, packaging, security, accessibility, privacy and performance reviews complete |
+
+A failed gate means revise or replace the component; do not proceed merely to preserve schedule or previous work.
+
+## 16. Research references
+
+Primary sources consulted for this update:
+
+- Jan pinned source and changelog: https://github.com/janhq/jan/tree/49a84bdeaebdfc0f36c00f252eb638f516a48432 and https://www.jan.ai/changelog
+- Tauri capability model and limitations: https://v2.tauri.app/security/capabilities/ and https://v2.tauri.app/security/
+- computer-use-linux source, release and security policy: https://github.com/agent-sh/computer-use-linux, https://docs.rs/crate/computer-use-linux/latest and https://github.com/agent-sh/computer-use-linux/blob/main/SECURITY.md
+- sherpa-onnx Rust API and v2.0.3 release: https://docs.rs/sherpa-onnx/latest/sherpa_onnx/ and https://github.com/k2-fsa/sherpa-onnx/releases/tag/v2.0.3
+- Docling Rust port and releases: https://github.com/docling-project/docling.rs and https://github.com/docling-project/docling.rs/releases
+- Apalis queue/workflow documentation: https://docs.rs/apalis/latest/apalis/, https://docs.rs/apalis-workflow/latest/apalis_workflow/ and https://docs.rs/apalis-sqlite/latest/apalis_sqlite/
+- Cloacina workflow documentation: https://docs.rs/cloacina/latest/cloacina/ and https://colliery-io.github.io/cloacina/
+- Extism feature configuration: https://docs.rs/crate/extism/latest/features and https://extism.org/docs/concepts/configuration/
+
+Research is a point-in-time snapshot. Before importing a dependency, re-check the current upstream revision, release, licence, security advisories and dependency tree.
