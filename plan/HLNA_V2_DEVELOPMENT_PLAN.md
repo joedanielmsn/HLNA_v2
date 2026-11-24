@@ -498,3 +498,17 @@ Primary sources consulted for this update:
 - Extism feature configuration: https://docs.rs/crate/extism/latest/features and https://extism.org/docs/concepts/configuration/
 
 Research is a point-in-time snapshot. Before importing a dependency, re-check the current upstream revision, release, licence, security advisories and dependency tree.
+
+
+### 15.10 Desktop foundation alternatives checked
+
+Jan remains the conditional starting foundation because it most closely matches HLNA's chosen Tauri 2 + Rust desktop architecture while already containing chat, provider, agent and extension infrastructure. This conclusion is comparative, not absolute.
+
+- **AnythingLLM** is the strongest broad feature reference: MIT-licensed, with a React frontend, Node/Express server and separate document collector. Its RAG/document pipeline is worth inspecting for specific gaps, but adopting the full app would introduce another application/server architecture and runtime.
+- **GPT4All** is a mature MIT-licensed local AI desktop product built around Qt/C++ and its own inference/backend stack. It is a valuable UX and local-model-management reference, but not a natural foundation for the Rust/Tauri/Ollama-first design.
+- **Chatbox Community Edition** is GPL-3.0. Review its obligations against HLNA's eventual distribution/licence before copying code; its client UX can still inform feature research.
+- **Open WebUI** is a strong web application, but its newer licence includes a branding condition. That makes it a poor foundation for a fully rebranded HLNA product unless those terms are deliberately accepted. The older BSD-3-licensed code through v0.6.5 is not automatically a better choice because it is an older baseline.
+- **OpenYoke** demonstrates a very lean Tauri/Rust/Ollama client and useful branching-chat UX, but current adoption/maintenance evidence is not sufficient to replace Jan as the complete foundation.
+- **Ambient** demonstrates Tauri/Rust desktop awareness and agent features, but its bundled llama.cpp and cloud-service assumptions do not match the initial Ollama-first, privacy-first architecture.
+
+The source component register contains the comparison references. No alternative is ruled out forever: a clean baseline build, deeper module inspection or measured prototype may change the foundation decision.
