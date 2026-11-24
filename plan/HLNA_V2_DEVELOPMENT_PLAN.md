@@ -720,3 +720,34 @@ Security requirements:
 - Treat extracted document text as untrusted prompt-injection content; preserve provenance and hidden-text flags, and never treat document instructions as permission grants.
 
 No document parser has been selected for production. No application source has been imported; HLNA v1 remains untouched.
+
+
+### 15.26 Corrected Jan desktop tool-permission finding
+
+**Correction to earlier research:** Jan's `ToolPermissions::default()` at the pinned commit is not ReadOnly. Its Default implementation calls `allow_all()`, which sets `PermissionDefault::Allow`. The desktop `execute_tool` path passes this default policy and empty session grants into `resolve_decision`. That gate checks hidden-path hard-denies and explicit shell escalation first, then checks `perms.is_allowed(tool.name)` before its capability-specific read/write/exec prompt branches. The allow-all policy therefore short-circuits those later capability prompts on this call path.
+
+This does not alone establish arbitrary host access: handlers, per-thread workspaces, hidden-path controls and OS sandboxing remain independent. But the earlier claim that the desktop tool path defaults to ReadOnly is incorrect. Treat the effective desktop boundary as unproven until the handler and sandbox layers are tested end-to-end. Test writes outside approved roots, attached-folder scope, symlink/path races, hidden Jan-home access, shell behavior without an enforcing jail, and escalation.
+
+Pinned sources:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/permissions.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/commands.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/gate.rs
+
+### 15.27 Local API server and server-side orchestration
+
+Jan's Local API Server documentation says an empty API key disables authentication only for the default 127.0.0.1 bind; non-loopback binds require a key. When configured, Bearer and X-Api-Key credentials are checked, with Host/Origin validation as additional browser protections. Origin-less SDK/CLI requests are intentionally accepted by the origin policy, so origin checks cannot replace authentication.
+
+The `/orchestrations` endpoint can execute configured MCP tool calls without per-call approval. It is disabled unless the user explicitly enables the Local API Server's server-side tool execution setting. That explicit setting is a useful user-consent boundary but is not a central permission broker.
+
+The in-process llama.cpp worker is a separate service: it binds to 127.0.0.1 and checks a Bearer API key on every request.
+
+HLNA requirements:
+- Keep a local API server disabled by default. If needed, bind loopback only, require a high-entropy secret, validate Origin/Host as defense in depth, and expose only selected endpoints.
+- Do not expose headless orchestration until every individual MCP call is broker-authorized at execution time, scoped, revocable and audited.
+- Prefer private in-process Rust services or supervised stdio MCP for internal integrations. Keep inference credentials separate from agent/tool-execution credentials.
+- Test that an empty key cannot be used for non-loopback binding, that orchestration is off by default, and that enabling it never bypasses the broker.
+
+Pinned sources:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/server/proxy.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-llamacpp/src/engine/http.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/docs/src/pages/docs/desktop/api-server.mdx
