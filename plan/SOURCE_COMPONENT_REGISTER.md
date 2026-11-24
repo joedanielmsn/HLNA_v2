@@ -334,7 +334,7 @@ References:
 
 Extism's observed Rust crate version is `1.41.0`. Its default features include HTTP access, HTTP-based module registration, filesystem-based module registration and Wasmtime defaults. Those are not acceptable as ambient extension privileges in HLNA.
 
-Jan already contains an extension architecture and Wasmtime-related runtime code. Extism should remain deferred unless a pinned, reproducible comparison shows it provides a material benefit. If ever prototyped, disable default features and expose only narrowly defined HLNA host functions; no plugin gets ambient filesystem or network access.
+Correction from the pinned-source audit: Jan's extension runtime at this revision is JavaScript running in browser Web Workers, not Wasmtime. It creates one blob-backed Worker per extension inside a hidden same-origin frame with a restrictive CSP. Host API calls pass through a permission dispatcher that validates method arguments and checks explicit grants. Network access is mediated by a Rust Tauri plugin; each request re-reads stored grants, the HTTP client has no cookie jar and does not follow redirects, and each redirect hop is checked again by the host. This is useful defense-in-depth, but it is not an OS-process sandbox and does not establish memory/CPU isolation from the WebView engine. Extism would add a separate Wasmtime-backed Wasm runtime, not duplicate an existing Jan Wasmtime runtime. Keep it deferred unless a pinned, reproducible comparison shows a material benefit. If ever prototyped, disable default features and expose only narrowly defined HLNA host functions; no plugin gets ambient filesystem or network access.
 
 References:
 - https://docs.rs/crate/extism/latest/features
@@ -437,3 +437,24 @@ References:
 - https://github.com/agent-sh/computer-use-linux/releases
 - https://github.com/agent-sh/computer-use-linux/security
 - https://docs.rs/crate/computer-use-linux/latest
+
+
+### 9.11 Exact extension-runtime audit — JavaScript Worker, not Wasmtime
+
+At the pinned Jan revision, the runtime architecture is now confirmed:
+
+- `web-app/src/lib/extensions/worker-runtime.ts` creates a blob-backed classic JavaScript Web Worker for each extension inside a hidden same-origin frame. Its worker CSP is `default-src 'none'; script-src 'wasm-unsafe-eval'; worker-src blob:`. This allows WebAssembly compilation but does not imply that the host uses Wasmtime.
+- The runtime prelude strips selected globals, while the host dispatcher validates method arguments and checks declared grants. Worker messages are bounded/rate-limited and workers can be terminated.
+- Installed extension network access is routed through the Rust `http_fetch` command. Grants are re-read from the registry for each request. The HTTP client has no cookie store and disables automatic redirects. Request methods, headers and body size are constrained; response size and timeout are bounded. The host follows redirects one hop at a time, checking each target against grants. The app's own local API port is refused.
+- The Rust HTTP source explicitly documents accepted DNS-rebinding and proxy-configuration risks. The grant checks the URL hostname, not the resolved IP. Requests may use configured environment/system proxies. HLNA must review these choices against its own threat model.
+- This Worker is not an OS-process sandbox and does not provide independent OS-enforced memory/CPU isolation. The WebView/browser engine remains trusted. Resource exhaustion, engine compromise, renderer compromise and defects in privileged host APIs remain important risks.
+- Extism would add a separate Wasmtime-backed Wasm runtime; it does not duplicate Jan's existing extension runtime. It remains deferred pending a demonstrated need and a minimal, explicit host API.
+
+Pinned source:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/extensions/worker-runtime.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/extensions/dispatcher.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/extensions/host-api.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/http.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/install.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/state.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/permissions.rs
