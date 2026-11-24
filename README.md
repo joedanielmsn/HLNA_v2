@@ -1,7 +1,8 @@
 # HLNA v2
 
-A local-first desktop assistant platform built with a best-of-breed, source-code-first reuse strategy.
+A local-first desktop assistant platform built with a best-of-breed, source-code-first reuse strategy. HLNA v2 is independent of HLNA v1.
 
-## Development plan
+## Project documents
 
-Read the [HLNA v2 Development and Source Reuse Plan](HLNA_V2_DEVELOPMENT_PLAN.md).
+- [Development and source reuse plan](HLNA_V2_DEVELOPMENT_PLAN.md)
+- [Source adoption matrix and module audit](SOURCE_ADOPTION_MATRIX.md)
