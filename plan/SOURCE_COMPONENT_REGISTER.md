@@ -706,3 +706,114 @@ Pinned sources:
 - Do not launch Jan's general CLI agent as an HLNA child process with default flags. If a CLI process is ever used, explicitly configure safe mode, sandbox, network/home access, allowed tools and project scope; still enforce the HLNA broker outside the child.
 - Prefer the narrower jan mcp serve integration for exposing Jan tools to another agent, and keep it stdio-only unless a concrete need justifies loopback HTTP.
 - Ensure MCP, extension, workflow, subagent, desktop-control and CLI paths all converge on one Rust-side broker. No frontend prompt or MCP server grant may bypass it.
+
+
+## 12. Research update — 2026-11-24: document-processing alternatives and deployment audit
+
+The document-processing shortlist now includes a newer Apache-2.0 Rust candidate, a specialist PDF extractor, and a higher-scoring but copyleft Python candidate. These are benchmark candidates, not approvals.
+
+### 12.1 docling.rs current release and build/runtime controls
+
+The current source release is now v2.88.1 (commit 8b819fad84ccd069fe4b1ad2adbbc9bd5794c4fc, 2026-11-24), superseding the previously recorded v2.86.14 baseline. It remains an MIT Rust workspace, with the PDF crate carrying an additional BSD-3-Clause notice for Adobe mapping resources.
+
+Positive findings:
+- The default PDF pipeline is moving toward a pure-Rust renderer; the optional PDFium feature is not required for the normal path.
+- Declarative Office/HTML/EPUB conversion can be separated from ML-heavy PDF layout/OCR/table features.
+- Model assets have a digest-bound manifest, per-artifact upstream revision and SPDX licence, model notices/licence files, and immutable content-addressed snapshots. The rolling models-v1 release alone is not a durable pin; save its SHA256SUMS or use the immutable models-v1-<digest> snapshot.
+- ONNX execution-provider features are explicit. CPU is the default; CUDA/TensorRT/DirectML/CoreML require explicit build features.
+- The optional load-dynamic feature searches ORT_DYLIB_PATH, the models directory and then the system library path. Because this loads native code into the process, HLNA should avoid that feature initially or replace it with a single verified canonical runtime path.
+
+Build caveat:
+- The docling-onnx crate enables ort's download-binaries feature. A normal ML-enabled build therefore obtains a prebuilt ONNX Runtime artifact through the dependency's build mechanism. HLNA must pin the crate lockfile and verify/cache that native binary independently; a source-only Cargo.lock does not by itself establish the provenance of every downloaded native artifact.
+- Model snapshots and their hashes are strong positives, but do not eliminate the need to pin the native ONNX Runtime archive, toolchain and build inputs.
+
+Current disposition: retain docling.rs as a serious document-processing candidate. Prototype no-ML declarative converters first; benchmark PDF text-only separately; add model-backed PDF layout/OCR/table features only if they outperform alternatives and fit the target resource budget.
+
+Pinned references:
+- https://github.com/docling-project/docling.rs/tree/v2.88.1
+- https://github.com/docling-project/docling.rs/blob/v2.88.1/crates/docling-onnx/Cargo.toml
+- https://github.com/docling-project/docling.rs/blob/v2.88.1/crates/docling-pdf/Cargo.toml
+- https://github.com/docling-project/docling.rs/blob/v2.88.1/docs/MODELS.md
+- https://github.com/docling-project/docling.rs/blob/v2.88.1/docs/MODELS_NOTICE.md
+- https://github.com/docling-project/docling.rs/blob/v2.88.1/scripts/install/models_catalog.json
+
+### 12.2 docparse-rs — new Apache-2.0 multi-format Rust candidate
+
+Repository: https://github.com/yzlabai/docparse-rs
+
+The inspected main-branch source is a Rust workspace currently declaring version 0.1.0 and Apache-2.0. It advertises 12 formats (PDF, DOCX, HTML, XLSX, PPTX, Markdown, CSV, SRT/VTT, LaTeX, EML, PNG/JPEG, AsciiDoc), one CLI/library, MCP and REST interfaces, a unified positioned document IR, outline/chunk outputs with page+bbox citations, and optional OCR/layout/table/formula enhancements. Its README reports 142 tests and its status notes extensive fuzzing; these are upstream claims to verify.
+
+Potential advantages:
+- Pure-Rust default parser path with no model requirement; optional PP-OCRv6 model files are about 7 MB.
+- Strongly agent-oriented IR: page, bounding box, section hierarchy, confidence and element-level source provenance.
+- Deterministic output and a quality/profile report to identify pages that need optional enhancement.
+- Explicit resource guards: 50,000-page ceiling and ZIP container limits of 2 GiB declared uncompressed content and 250:1 compression ratio.
+- Model-backed stages are opt-in; the CLI forces batch jobs to one when ML models are active to bound memory.
+
+Important risks/gaps:
+- It is very new (workspace version 0.1.0) and has a substantially smaller adoption/maintenance history than Docling. Its impressive self-reported benchmark numbers are not independent verification.
+- The PP-OCRv6 downloader uses Hugging Face URLs pointing at the floating main branch. It checks only that a download is larger than 1 KiB; the inspected code does not verify a pinned revision or cryptographic digest. HLNA must not use that downloader unchanged. Pin model revisions and hashes, enforce size limits, and cache verified assets.
+- Its MCP tools accept a caller-supplied local path and pass it directly to the parser; the inspected path has no project-root authorization. Running this MCP server would therefore expose whatever local files the process can read to the connected agent. Do not expose the upstream MCP server directly in HLNA.
+- Its REST service binds to 127.0.0.1 by default and has no authentication. It allows an explicit wider host bind; the upload limit is 256 MiB. Do not expose it to a network. Prefer an in-process library integration after HLNA broker path authorization, or a tightly sandboxed supervised process.
+- Optional VLM enhancement can call an OpenAI-compatible service; keep that disabled unless the user explicitly configures it.
+
+Current disposition: add docparse-rs to the document benchmark as a promising lightweight multi-format contender, but not as a production dependency yet. First pin a source commit, inspect its full dependency/licence graph and tests, review the PDF/Office parsers for malformed input, and reproduce extraction quality and resource measurements. If adopted, call its library only behind the HLNA broker; replace model fetch logic with verified, pinned assets.
+
+Pinned inspected files:
+- https://github.com/yzlabai/docparse-rs/blob/main/Cargo.toml
+- https://github.com/yzlabai/docparse-rs/blob/main/crates/docparse-cli/src/mcp.rs
+- https://github.com/yzlabai/docparse-rs/blob/main/crates/docparse-cli/src/server.rs
+- https://github.com/yzlabai/docparse-rs/blob/main/crates/docparse-core/src/limits.rs
+- https://github.com/yzlabai/docparse-rs/blob/main/crates/docparse-ocr/src/fetch.rs
+- https://github.com/yzlabai/docparse-rs/blob/main/crates/docparse-pdf/src/lib.rs
+
+### 12.3 Firecrawl pdf-inspector — specialist PDF fast path
+
+Repository: https://github.com/mbrukman/firecrawl-pdf-inspector
+
+The inspected crate is MIT-licensed, Rust, version 0.1.7, built around lopdf. It classifies PDFs as text-based, scanned, image-based or mixed; extracts positioned text; reconstructs reading order and tables; and converts native-text PDFs to Markdown without OCR or external services. It includes Python, Node and browser-WASM bindings.
+
+Its published 200-PDF benchmark reports strong native-text reading-order/table scores and sub-second aggregate processing on an Apple M4 Pro. The benchmark has reproducible result artifacts, but must still be reproduced on HLNA's target machine and document corpus. It is PDF-only, not a multi-format replacement, and its current version is early.
+
+Current disposition: include it as a specialist native-text PDF benchmark and possible fast-path parser. It could complement Docling/docparse-rs by cheaply routing born-digital PDFs away from expensive OCR/layout pipelines. Do not ship a second PDF parser unless the accuracy/latency benefit is measurable.
+
+References:
+- https://github.com/mbrukman/firecrawl-pdf-inspector
+- https://github.com/mbrukman/firecrawl-pdf-inspector/blob/main/Cargo.toml
+- https://github.com/mbrukman/firecrawl-pdf-inspector/blob/main/LICENSE
+- https://github.com/firecrawl/opendataloader-bench/tree/abi/pdf-parser-benchmark-results
+
+### 12.4 DocSlicer — benchmark leader, licensing caveat
+
+Repository: https://github.com/DocSlicer/DocSlicer
+
+The current repository describes a Python document parser/chunker for PDF, DOCX, PPTX and HTML, with hierarchy-aware chunks and structured tables. Its associated BizDocBench leaderboard reports DocSlicer 0.88 versus Docling 0.70 on 77 business documents. However:
+- DocSlicer and BizDocBench are maintained by the same publisher, so the result is vendor-reported rather than independent.
+- The benchmark says scanned documents, handwriting and OCR are out of scope.
+- It is a narrow 77-document corpus and the scoring weights and document selection need independent review.
+- The current source is dual-licensed AGPL-3.0-only or commercial. A proprietary/closed-source distribution would need a licence review and likely a separate commercial agreement; do not copy it into HLNA by default.
+- It requires Python 3.10+, with optional Playwright/Chromium for browser-rendered HTML and Tesseract/OpenCV for OCR.
+
+Current disposition: use its benchmark corpus/methodology as an additional evaluation reference and inspect its strengths in business-document hierarchy/table extraction. Do not adopt its code unless HLNA's distribution licence is compatible or a commercial licence is deliberately acquired.
+
+References:
+- https://github.com/DocSlicer/DocSlicer
+- https://github.com/DocSlicer/DocSlicer/blob/main/LICENSE
+- https://github.com/DocSlicer/DocSlicer/blob/main/LICENSE-COMMERCIAL.md
+- https://github.com/DocSlicer/BizDocBench
+
+### 12.5 Revised document-processing benchmark plan
+
+Compare at least:
+1. Jan's existing parser/RAG baseline.
+2. docling.rs v2.88.1 no-ML declarative formats.
+3. docling.rs PDF text-layer-only.
+4. docling.rs ML PDF path with optional models.
+5. docparse-rs deterministic default path.
+6. docparse-rs optional OCR/layout/table path only where needed.
+7. pdf-inspector as a native-text PDF fast path.
+8. DocSlicer as a benchmark reference only unless licensing is resolved.
+
+Use one locally held, licence-cleared corpus with human-checked ground truth: born-digital PDFs, scanned PDFs, mixed PDFs, complex tables, multi-column layouts, CJK/RTL/Unicode, DOCX, PPTX (including notes/charts), XLSX, HTML, malformed/hostile files and very large documents. Record exact parser/model commits and hashes. Measure text accuracy, reading order, heading hierarchy, table cells, page+bbox provenance, hidden-text handling, extraction coverage, throughput, cold-start, peak RSS, CPU, GPU memory, model disk footprint, and concurrent Ollama performance. Score each format separately; do not allow a fast DOCX parser to mask poor scanned-PDF handling.
+
+**Updated disposition:** docling.rs remains the mature broad-feature candidate; docparse-rs is now a promising lighter Rust candidate requiring maturity/security work; pdf-inspector is a specialist PDF fast path; DocSlicer is benchmark/reference-only pending licence compatibility. No parser has been selected for production.
