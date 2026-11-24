@@ -770,3 +770,30 @@ Beyond Cloacina and Apalis:
 - speechkit 0.5.0 (https://docs.rs/speechkit/latest/speechkit/) is a Rust convenience facade over sherpa-onnx plus optional cloud providers/audio devices. It may reduce glue code but does not remove native/model provenance requirements. Disable cloud features in local-first builds.
 - whisper-rs 0.16.0 (Unlicense) remains an ASR-only comparison with optional CUDA/Vulkan/OpenBLAS paths; it is not a unified TTS/VAD stack.
 - Benchmark actual target hardware and target languages, including CPU fallback, RAM/VRAM, cold start, latency and concurrent Ollama inference. Each voice/model has its own licence and checksum record.
+
+
+### 15.31 Jan platform jail and extension-runtime caveats
+
+Jan's pinned jail implementation uses Linux bubblewrap, macOS Seatbelt and Windows AppContainer. Its intended desktop policy confines writes to the thread workspace/private temp, denies network unless explicitly allowed, masks the Jan data folder and hides Jan home. The shell is withheld if no enforcing backend exists.
+
+Platform differences require explicit gates:
+- AppContainer has a narrower default read surface, but Jan's source says it does not enforce the `hide_root` subpath mask; only the best-effort command-token scan remains for that check. It also cannot express a read-only workspace and refuses that policy. Windows therefore needs dedicated adversarial tests and may need a stricter HLNA-specific design.
+- Linux must test the actual bubblewrap version, kernel and runtime environment; macOS must validate Seatbelt behavior on supported OS versions.
+- Token scanning is not an OS security boundary. Keep shell escalation unavailable by default.
+
+Jan's extension installer and dispatcher provide useful patterns: staged bundle validation, manifest/API compatibility checks, indexed tarball integrity and signature status, permission diffs on updates, entry hash verification, safe mode, an exhaustive host-method policy table, argument validation, no cookie store, redirects disabled, and bounded HTTP concurrency/timeouts/body sizes.
+
+However:
+- The source documents that DNS resolution is not pinned/validated against the granted hostname and that system/environment proxy configuration may route requests through the user's proxy.
+- Hostname-level network grants require explicit DNS-rebinding/private-address and redirect threat analysis.
+- Its JavaScript Worker is not an OS process sandbox and does not provide hard CPU/memory isolation.
+- HLNA must route all extension host calls through the same Rust broker and must not give extension code direct Tauri IPC access.
+
+Pinned source:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/jail.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/appcontainer.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/install.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/http.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/extensions/dispatcher.ts
+
+These findings do not reject Jan as a conditional desktop foundation. They make the platform-specific sandbox and extension broker work mandatory acceptance gates before those capabilities are enabled.
