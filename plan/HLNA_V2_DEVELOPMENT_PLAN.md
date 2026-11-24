@@ -555,3 +555,24 @@ Pinned source:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/state.rs
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/permissions.rs
 
+
+
+### 15.13 Vector database audit and adoption safeguards
+
+Jan's SQLite vector implementation remains a useful baseline, but the pinned code has several issues HLNA must address before reuse:
+
+- **Native extension provenance:** sqlite-vec is loaded as a native SQLite extension. The current loader searches an environment override, development paths, executable-relative paths, common system directories and finally bare library names. Loading an arbitrary native library is code execution in the application process. HLNA should load only a bundled, version-pinned, hash-verified artifact from a canonical application resource directory; reject user-controlled/system/bare-name search paths by default, and disable extension loading again immediately after the trusted module is loaded if the SQLite API permits.
+- **ANN cleanup consistency:** insertion writes embeddings into both the ordinary chunks table and the sqlite-vec virtual table. The inspected delete_file and delete_chunks paths delete from chunks but do not visibly delete corresponding rows from chunks_vec. This can leave orphaned ANN entries, waste storage and create correctness hazards if SQLite rowids are later reused. Add explicit vector-row deletion in the same transaction or use a schema/design that guarantees synchronized deletion. Add tests for repeated insert/update/delete/reopen cycles and rowid reuse.
+- **Embedding dimension/model lifecycle:** the virtual table is created with a fixed vector dimension. The current extension attempts to tolerate ANN insert failures and retain linear-search availability when dimensions differ. HLNA should record embedding model identity, revision, dimension and preprocessing/chunking version per index. A model change should trigger a staged rebuild into a new collection, verify it, then atomically switch; never silently mix dimensions or destroy the only existing index.
+- **Avoid duplicate embedding work:** the current project-ingestion path calls embedTexts once to discover dimension and again to insert the chunks. Retain and reuse the first embedding batch when valid, avoiding a second inference pass. Benchmark this on the target GPU/CPU.
+- **Chunking:** Jan's Rust chunk_text helper splits by Unicode character count, not the active embedding model's tokenizer. Its extension applies heuristics and token-count checks around that helper. HLNA should use tokenizer-aware chunking with configurable overlap and preserve page/section provenance; evaluate document-specific structure-aware splitting.
+- **Database lifecycle:** collection names are mapped to individual SQLite files; conversation/thread and project collections are separated. Keep that ownership model only if lifecycle tests prove collection deletion, project deletion, file re-import and backup/restore are consistent. Define explicit SQLite busy timeout, WAL/checkpoint and backup policy before introducing concurrent background indexing.
+
+The vector implementation is therefore still a benchmark baseline, not yet an approved production component. The immediate priority is correctness and native-extension provenance, not replacing SQLite with a new vector database prematurely.
+
+Pinned sources:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-vector-db/src/db.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-vector-db/src/commands.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/extensions/vector-db-extension/src/index.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/extensions/rag-extension/src/index.ts
+
