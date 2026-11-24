@@ -28,6 +28,12 @@ if [ -x "$BINARY" ] && command -v strings >/dev/null; then
   n="$(strings -a "$BINARY" | grep -ciE 'posthog')"
   [ "$n" -eq 0 ] && ok "no posthog strings in binary" || bad "posthog appears $n time(s) in binary"
 else skip "binary string check"; fi
+# The frontend is embedded compressed in the binary, so `strings` cannot see it. Check the built web assets directly.
+WEBDIST="$(find "$JAN_DIR" -maxdepth 3 -type d -name dist -path '*web-app*' -not -path '*/node_modules/*' 2>/dev/null | head -1)"
+if [ -n "$WEBDIST" ]; then
+  n="$(grep -rlE 'posthog\.com|i\.posthog' "$WEBDIST" 2>/dev/null | wc -l)"
+  [ "$n" -eq 0 ] && ok "no PostHog hosts in built web assets ($WEBDIST)" || bad "$n built web file(s) reference PostHog hosts (e.g. $(grep -rlE 'posthog\.com|i\.posthog' "$WEBDIST" | head -1))"
+else skip "built web assets (web-app/dist not found; run build:web)"; fi
 grep -rqE 'JAN_DATA_(ROOT|FOLDER)' "$JAN_DIR/src-tauri/src" 2>/dev/null && bad "old JAN_DATA_* env vars still in Rust" || ok "no JAN_DATA_* in Rust"
 
 echo "== Permission broker core"

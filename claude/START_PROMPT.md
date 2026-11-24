@@ -20,3 +20,6 @@ Tips for the human:
 - When it asks for a code change, make it produce a small `git apply` diff and read the diff before applying.
 - If it starts proposing broad rewrites, repo-wide formatting, or "let me scan everything", stop it and point at AGENTS.md rule 4.
 - Cheap models are fine for running scripts and following the runbook. Use a stronger model for Day 2 security patches and the broker integration.
+- Have the cheap AI paste back each command's output verbatim. Do not let it summarize outputs for you.
+- After each green step, commit explicit paths yourself (small commits are your undo history).
+- If two answers in a row contradict the runbook, stop and switch to a stronger model for that one decision.

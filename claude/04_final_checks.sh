@@ -17,8 +17,12 @@ git status --short | grep -E '\.hlna-backup|/target/|node_modules|claude/logs/|\
   || echo "none flagged"
 
 info "Quick leftover-identity grep in active config (read-only)"
-grep -nE '"publisher"|"endpoints"|"pubkey"|posthog' foundation/jan/src-tauri/tauri*.conf.json 2>/dev/null \
-  || echo "no publisher/updater/posthog hits in tauri*.conf.json"
+CONFS=$(ls foundation/jan/src-tauri/tauri*.conf.json 2>/dev/null)
+if [ -z "$CONFS" ]; then
+  echo "WARNING: no tauri*.conf.json found under foundation/jan/src-tauri (cannot check)"
+else
+  grep -nE '"publisher"|"endpoints"|"pubkey"|posthog' $CONFS || echo "no publisher/updater/posthog hits in: $(echo $CONFS | tr '\n' ' ')"
+fi
 
 cat <<'EOF'
 

@@ -56,6 +56,9 @@ CARGO_BUILD_JOBS=6 bash claude/02_build.sh
 
 If the terminal closes: first run `pgrep -af 'tauri build|cargo|rustc'` to see if a build is still running. Do not start a second one.
 
+## 3b. Before any risky edit (Day 2 onward), make a restore point
+`git branch backup/before-<task>` (local branch, changes nothing). Then edits can always be undone by the user with explicit commands. Never use `git reset --hard` or `git clean` yourself.
+
 ## 4. After the build succeeds (in order, one block at a time)
 1. `bash claude/03_smoke_test.sh` (launches `HLNA-Desktop` in `~/.hlna-smoke-profile`; user does the 4-point checklist it prints. If the window is blank: `HLNA_WEBKIT_WORKAROUND=1 bash claude/03_smoke_test.sh`).
 2. `bash claude/04_final_checks.sh` (diff check, flags files not to commit).
@@ -68,7 +71,8 @@ If the terminal closes: first run `pgrep -af 'tauri build|cargo|rustc'` to see i
 `04_final_checks.sh` git hygiene | `05_security_audit.sh` grep audit, writes `logs/audit-*.txt` | `06_core_check.sh` Ollama 16K check |
 `07_pin_sqlite_vec.sh` pinned sqlite-vec | `08_package_check.sh` .deb inspection | `09_acceptance.sh` automated acceptance subset |
 `10_release.sh` notes/checksums/licenses/tag | `run_all.sh dayN` | `broker/` Rust crate (`cargo test --offline --manifest-path claude/broker/Cargo.toml`).
-All scripts were written without access to the real tree; only syntax-checked (and the audit script exercised on a fake tree). Expect small fixes when they first meet the real tree. Fix the script, do not work around it silently.
+All scripts were written without access to the real tree. Before handoff they were exercised in a sandbox against a FAKE tree (fake yarn, fake binary, hand-built .deb, fake Ollama stream server, fake Jan data dir): success and failure paths of 02, 03 (incl. detecting a write to real Jan data and refusing an unsafe profile path), 04, 05, 06, 07 (rejects a malicious pin file), 08, 09, 10 all behaved as designed, and `01` was fixed for a real hang found on the user's machine. They have NOT run against the real Jan tree, a real Tauri build, or a real Ollama GPU. Expect small fixes when they first meet the real tree. Fix the script, do not work around it silently.
+Known expected behaviors that look like failures: `09_acceptance.sh` reports FAIL for untracked, un-ignored `*.hlna-backup`/`target/`/`node_modules` files (intended: decide to ignore or move them); `02_build.sh` refuses to start while a `cargo`/`rustc` process exists (override with `HLNA_FORCE=1` after looking at the list, e.g. rust-analyzer in an editor).
 
 ## 6. Facts learned this session (so nobody re-learns them)
 - Node 25+ no longer bundles Corepack; on Arch it is the `corepack` package. Enable with `corepack enable --install-directory ~/.local/bin`.

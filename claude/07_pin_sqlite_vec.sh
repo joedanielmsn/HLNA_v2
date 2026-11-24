@@ -47,9 +47,11 @@ EOF
     ;;
   --install)
     [ -f "$PIN" ] || die "No pin file. Run --print <version> first and save the verified values to $PIN"
-    # shellcheck disable=SC1090
-    VERSION="" ASSET="" SHA256=""; source "$PIN"
-    [ -n "$VERSION" ] && [ -n "$SHA256" ] || die "pin file incomplete"
+    # Parse key=value lines; never execute the pin file as shell.
+    getp() { sed -n "s/^$1=//p" "$PIN" | head -1 | tr -d ' \t\r'; }
+    VERSION="$(getp VERSION)"; ASSET="$(getp ASSET)"; SHA256="$(getp SHA256)"
+    [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] || die "pin VERSION missing or malformed"
+    [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || die "pin SHA256 missing or not 64 lowercase hex chars"
     [ "$ASSET" = "$(asset_for "$VERSION")" ] || die "pin ASSET ($ASSET) does not match this machine ($(asset_for "$VERSION"))"
     fetch "$VERSION"
     echo "$SHA256  $WORK/asset.tgz" | sha256sum -c - || die "CHECKSUM MISMATCH - refusing to install"

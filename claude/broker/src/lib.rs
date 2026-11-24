@@ -150,6 +150,8 @@ impl Broker {
     }
 
     /// Record a grant created by an explicit user decision.
+    /// (Eight parameters is deliberate for now; fold into a `GrantSpec` struct when integrating.)
+    #[allow(clippy::too_many_arguments)]
     pub fn grant(
         &mut self,
         component: &str,
@@ -210,7 +212,7 @@ impl Broker {
                 return Decision::Deny { reason: "target is in a protected location".into() };
             }
         }
-        self.grants.retain(|g| g.expires_at.map_or(true, |t| t > now));
+        self.grants.retain(|g| g.expires_at.is_none_or(|t| t > now));
 
         let needs_one_shot =
             self.mode == Mode::AskEveryTime || req.risk >= Risk::High || req.access == Access::Delete;

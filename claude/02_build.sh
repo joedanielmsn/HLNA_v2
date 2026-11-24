@@ -9,8 +9,11 @@ source "$DIR/00_common.sh"
 guard_paths
 setup_yarn
 
-if pgrep -af 'tauri build|cargo build|rustc' >/dev/null; then
-  die "A build already seems to be running. Wait for it or check: pgrep -af 'tauri|cargo|rustc'"
+# Match process NAMES only (not command-line text). rust-analyzer in an editor also runs `cargo`,
+# so this can be overridden after you look at the list: HLNA_FORCE=1 bash claude/02_build.sh
+if pgrep -x cargo >/dev/null || pgrep -x rustc >/dev/null; then
+  echo "cargo/rustc is running:"; pgrep -ax cargo; pgrep -ax rustc
+  [ "${HLNA_FORCE:-0}" = "1" ] || die "Wait for it to finish (or close your editor's rust-analyzer), or rerun with HLNA_FORCE=1 if it is not a build."
 fi
 
 [ -d "$JAN_DIR/node_modules" ] || die "node_modules missing in $JAN_DIR. Run 'yarn install --immutable' there once, then retry."

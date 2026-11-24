@@ -7,7 +7,7 @@ source "$DIR/00_common.sh"
 guard_paths
 
 info "Leftover build processes (from the crashed terminal)?"
-pgrep -af 'tauri build|cargo build|rustc' || echo "none running"
+{ pgrep -ax cargo; pgrep -ax rustc; } || echo "none running"
 
 info "Tool locations and versions"
 for t in node npm cargo rustc git cmake corepack yarn; do

@@ -25,6 +25,7 @@ guard_paths() {
 
 # Make `yarn` resolvable: prefer repo shims, then fall back to `corepack yarn`.
 setup_yarn() {
+  export COREPACK_ENABLE_DOWNLOAD_PROMPT=0   # Yarn is pinned by foundation/jan; never wait on a hidden prompt
   [ -d "$TOOLS_BIN" ] && export PATH="$TOOLS_BIN:$PATH"
   hash -r
   if command -v yarn >/dev/null 2>&1; then
