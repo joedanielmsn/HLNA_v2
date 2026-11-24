@@ -817,3 +817,56 @@ Compare at least:
 Use one locally held, licence-cleared corpus with human-checked ground truth: born-digital PDFs, scanned PDFs, mixed PDFs, complex tables, multi-column layouts, CJK/RTL/Unicode, DOCX, PPTX (including notes/charts), XLSX, HTML, malformed/hostile files and very large documents. Record exact parser/model commits and hashes. Measure text accuracy, reading order, heading hierarchy, table cells, page+bbox provenance, hidden-text handling, extraction coverage, throughput, cold-start, peak RSS, CPU, GPU memory, model disk footprint, and concurrent Ollama performance. Score each format separately; do not allow a fast DOCX parser to mask poor scanned-PDF handling.
 
 **Updated disposition:** docling.rs remains the mature broad-feature candidate; docparse-rs is now a promising lighter Rust candidate requiring maturity/security work; pdf-inspector is a specialist PDF fast path; DocSlicer is benchmark/reference-only pending licence compatibility. No parser has been selected for production.
+
+
+## 13. Research correction and update — 2026-11-24: Jan desktop tool gate and local API server
+
+A re-check of the exact pinned implementation found that an earlier security note incorrectly described the desktop agent's ToolPermissions default as ReadOnly. The source says otherwise. This correction supersedes the earlier statement.
+
+### 13.1 Critical correction: desktop ToolPermissions default is allow-all
+
+At Jan commit 49a84bdeaebdfc0f36c00f252eb638f516a48432:
+- `ToolPermissions::default()` explicitly returns `Self::allow_all()`, and `allow_all()` sets `PermissionDefault::Allow`.
+- The desktop `execute_tool` path passes `ToolPermissions::default()` and empty `SessionGrants` to the shared `resolve_decision` gate.
+- In `resolve_decision`, after hidden-path hard-denies and the explicit shell-escalation check, `perms.is_allowed(tool.name)` returns `Decision::Allow` before the capability-specific read/write/exec prompt branches.
+- Therefore, on this desktop call path, the permission object short-circuits those later capability prompts for all tools. This is not a ReadOnly default and must not be described as such.
+- This does not, by itself, prove arbitrary host writes or unsandboxed execution are possible: handler-level path checks, the per-thread workspace, hidden-path checks and OS sandbox behavior are separate controls. But the previous claim that the desktop path defaults to a ReadOnly permission policy was wrong, and the exact effective boundary needs an end-to-end test.
+
+This is a high-priority audit item. Before reusing the desktop tool layer, trace every handler and filesystem/shell sandbox, then test write attempts outside the ephemeral workspace, attached-folder behavior, shell execution with and without an enforcing jail, symlink/path races, hidden Jan-home access and escalation. Do not assume the shared gate's comments about prompt behavior accurately describe the desktop caller's effective configuration.
+
+Pinned source:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/permissions.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/commands.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/tools/gate.rs
+
+### 13.2 Local API server: authentication and headless tool execution
+
+Jan's Local API Server documentation and pinned implementation establish:
+- The normal local API server host is 127.0.0.1. An empty API key disables authentication only on the default loopback host; Jan refuses a non-loopback bind without a configured key.
+- When configured, requests authenticate with a Bearer token or X-Api-Key. Host-header and Origin checks add browser-origin protections; requests without an Origin are intentionally allowed for SDK/CLI clients, so Origin checks are not a substitute for authentication.
+- The server-side `/orchestrations` route can ask a model for tool calls and execute configured MCP tools without per-call approval. It is available only when the user explicitly enables the Local API Server's server-side tool execution setting.
+- This creates another independent agent execution surface. The explicit toggle is a useful consent boundary, but it is not a central policy broker, and it should not be inherited as blanket authorization for every MCP action.
+- Jan's in-process llama.cpp engine worker binds to 127.0.0.1 and checks a Bearer API key on every request. It is a distinct service from the Local API Server proxy.
+
+HLNA disposition:
+- Keep any local API server disabled by default. If needed, bind loopback only, require a high-entropy secret even on loopback, validate Origin/Host as defense in depth, and expose only explicitly selected endpoints.
+- Do not expose headless orchestration until every MCP call is broker-authorized at execution time, with scoped grants and audit. A global server-side-execution toggle is insufficient for HLNA.
+- Prefer a private in-process Rust service or supervised stdio MCP for internal integrations. Do not expose a broad unauthenticated localhost API to browsers or other local processes.
+- Separate inference transport credentials from agent/tool execution credentials.
+
+Pinned sources:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/server/proxy.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-llamacpp/src/engine/http.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/docs/src/pages/docs/desktop/api-server.mdx
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/server/proxy.rs
+
+### 13.3 Security-gate implications
+
+Add tests for:
+1. Desktop `ToolPermissions::default()` and the exact early-return ordering in `resolve_decision`.
+2. Every tool handler's own filesystem/path/sandbox checks, including symlink swaps and TOCTOU.
+3. A desktop tool call cannot write outside approved roots even if the shared policy object is allow-all.
+4. Shell execution refuses if an enforcing OS sandbox is unavailable; no escalation path is silently granted.
+5. Local API server with empty key cannot bind off-loopback; configured key is required and validated.
+6. `/orchestrations` remains disabled by default and every individual MCP call is broker-gated when enabled.
+7. Origin-less SDK/CLI requests still require credentials whenever the service is reachable outside a strictly private in-process boundary.
