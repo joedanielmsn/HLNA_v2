@@ -345,7 +345,7 @@ References:
 The following were checked directly at Jan commit `49a84bdeaebdfc0f36c00f252eb638f516a48432`:
 
 - Root `LICENSE` is Apache-2.0 and includes a request for attribution in user-facing documentation/materials where appropriate.
-- `src-tauri/src/core/agent/loop.rs` contains a server-side OpenAI orchestration entry point that constructs `ToolPermissions::allow_all()`. This is specifically an API-server path; it does not by itself prove that every desktop agent path is unrestricted. HLNA must trace all entry points and enforce a central policy for both desktop and local API surfaces.
+- `src-tauri/src/core/agent/loop.rs` accepts a `ToolPermissions` value through `OrchestrationArgs`; it does not itself construct `ToolPermissions::allow_all()` at the pinned revision. The desktop chat tool loop is driven from TypeScript and reaches Rust through `tauri-plugin-agent-tools` IPC. Its `execute_tool` path uses `ToolPermissions::default()` (whose default is `ReadOnly`) and enforces workspace/path checks; the desktop shell is refused unless an enforcing OS jail is available. The permissive `allow_all()` constructor exists in the permission module and is used by tests, so HLNA must still audit every caller and surface rather than infer policy from the shared loop alone.
 - `src-tauri/src/core/app/paths.rs` defines `JAN_DATA_ROOT`, Jan data folders and Jan-specific path handling. Replacing only the Tauri bundle identifier is insufficient. Audit all environment variables, folder names, migration commands, backups and recovery paths.
 - `src-tauri/plugins/tauri-plugin-vector-db/src/db.rs` stores vector collections below a Jan-specific data path and probes for sqlite-vec, with a linear-search fallback. This supports retaining the existing retrieval storage as the first benchmark baseline rather than adding another vector DB immediately.
 - `src-tauri/tauri.conf.json` declares the Jan product name, binary name and `jan.ai.app` identifier. It also lists multiple capability files and a CSP with broad remote connectivity.
@@ -407,3 +407,33 @@ Key references:
 - Ambient Tauri/Rust architecture: https://github.com/LukeSutor/ambient
 
 **Conclusion:** Jan remains the best current starting foundation for HLNA's Tauri 2 + Rust desktop architecture, but only conditionally. AnythingLLM is the strongest broad feature reference for document/RAG workflows; GPT4All is a mature alternative product with a different native stack. The choice must still pass an unmodified baseline build and a focused comparison of required capabilities.
+
+
+### 9.9 Agent security and build-provenance audit refinement
+
+The pinned-source inspection adds the following verified details and corrections:
+
+1. **Desktop agent execution:** Jan's desktop chat tool loop is TypeScript-driven and calls Rust through tauri-plugin-agent-tools IPC. The Rust execute_tool path uses ToolPermissions::default(), which resolves to PermissionDefault::ReadOnly. It checks workspace and hidden paths. Writes are confined to an ephemeral thread workspace; attached-folder writes are a distinct opt-in. Shell execution is refused unless an enforcing OS jail is available, and desktop escalation is refused. Preserve and test these properties if reusing this module.
+2. **Do not conflate agent surfaces:** the shared Rust orchestration loop receives a permissions object; it does not itself call ToolPermissions::allow_all() at the pinned ref. The permissive constructor exists in permissions.rs and is used in tests. CLI and API callers must be traced separately. The earlier register wording that attributed allow_all() to loop.rs is corrected.
+3. **Migration isolation:** Jan's app config migration searches Jan legacy locations, copies settings into a canonical location and attempts to remove the legacy copy. HLNA must disable or replace all such recovery/migration code. A new app identifier or storage root alone does not guarantee Jan/v1 data isolation.
+4. **WebView and plugin permissions:** the pinned default Tauri capability includes shell spawn/open, broad HTTP scopes, updater and multiple powerful plugins. Tauri CSP allows broad HTTP(S) connections and includes PostHog hostnames; updater endpoints are configured. HLNA must build a minimal capability set and remove analytics/updater/network defaults not explicitly required.
+5. **Build provenance:** Jan's binary-download script fetches Bun and uv through floating latest URLs and obtains sqlite-vec assets dynamically. HLNA should pin versions, hashes/signatures and source revisions for all build tools and binary assets; do not copy this dynamic download behavior unchanged.
+
+References:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/commands.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/permissions.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/app/commands.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/tauri.conf.json
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/capabilities/default.json
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/scripts/download-bin.mjs
+
+### 9.10 Desktop-control package version discrepancy — unresolved
+
+The GitHub Releases page currently identifies signed release tag v0.7.31 (commit cc38489) as its latest tagged release, while docs.rs currently presents crates.io package computer-use-linux 0.7.59. These are not interchangeable version identifiers. Before adoption, establish the exact crates.io source provenance, corresponding Git commit/tag, release assets, signatures/checksums and dependency graph. Do not pin a floating latest package or infer that the crates.io package is identical to the latest GitHub release.
+
+The project remains a strong Linux desktop-control prototype, but all observation and mutation must be mediated by HLNA's broker. Its on-screen activity indicator is a useful UX/security feature to evaluate. Test the target compositor, portal consent, focus validation, accessibility data exposure, stale-target handling, input correctness and stop/revoke behavior. Never expose its full MCP toolset directly to the model.
+
+References:
+- https://github.com/agent-sh/computer-use-linux/releases
+- https://github.com/agent-sh/computer-use-linux/security
+- https://docs.rs/crate/computer-use-linux/latest
