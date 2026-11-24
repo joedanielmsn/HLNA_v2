@@ -797,3 +797,18 @@ Pinned source:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/extensions/dispatcher.ts
 
 These findings do not reject Jan as a conditional desktop foundation. They make the platform-specific sandbox and extension broker work mandatory acceptance gates before those capabilities are enabled.
+
+
+### 15.32 DBOS Rust SDK comparison
+
+The official DBOS Rust SDK (`dbos` 0.6.0, https://github.com/dbos-inc/dbos-transact-rust) is explicitly pre-production and not yet supported for production use; its current documented backend is PostgreSQL. It is a useful durable-execution design/reference candidate but does not currently match HLNA's embedded SQLite-first desktop architecture.
+
+Durare 0.5.0 is a community DBOS-compatible Rust SDK with SQLite and PostgreSQL providers, dual Apache-2.0/MIT licensing and a smaller community. Prototype it alongside Cloacina/Acts only if durable workflow requirements justify an external engine. Evaluate crash recovery, concurrency, cancellation, workflow versioning and the exact guarantees around side effects.
+
+Important semantic constraint: checkpoint/replay cannot by itself guarantee exactly-once effects in arbitrary external services. HLNA must use idempotency keys, transactional outbox/inbox patterns where possible, and reconciliation for operations crossing database/process/network boundaries.
+
+Sources:
+- https://github.com/dbos-inc/dbos-transact-rust
+- https://github.com/SamuelXing/durare
+- https://docs.rs/dbos/latest/dbos/
+- https://docs.rs/durare/latest/durare/
