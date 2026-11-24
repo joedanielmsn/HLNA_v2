@@ -640,3 +640,69 @@ References:
 - https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md
 - https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/COMMERCIAL_USE.md
 - https://github.com/k2-fsa/sherpa-onnx
+
+
+## 11. Research update — 2026-11-24: Jan cross-surface permission audit
+
+A deeper audit found materially different security defaults across Jan's desktop agent, headless CLI, MCP client and MCP server. HLNA must not assume that a desktop-safe configuration also makes CLI/API/automation use safe.
+
+### 11.1 Headless CLI defaults are materially more permissive
+
+At the pinned Jan commit:
+- The CLI/TUI sets auto_approve = !safe. Approval prompts are therefore off by default; --safe enables prompts for writes, shell commands and MCP calls.
+- Shell confinement is separate. The CLI sandbox defaults off unless enabled by --sandbox, project [tools].sandbox, or global configuration.
+- Even when CLI shell confinement is enabled, CLI defaults allow network access and reading the user's home directory (for credential helpers), unless separately restricted.
+- The project agent.toml default/allow/deny/allow_write policy is consumed by permissions_from, which is CLI-only. Desktop gating is implemented separately by the Tauri plugin.
+- CLI default = read-only still advertises opaque MCP tools. It does not make third-party MCP tools read-only. The permissions module explicitly tests this behaviour; deny is needed to suppress MCP tools.
+- auto_approve is inherited by dispatched subagents. HardDeny still takes precedence, but this is not an HLNA-wide security boundary.
+
+This is an intentional coding-agent trade-off in Jan, not necessarily a Jan defect. For HLNA, every entry point must call the same broker, and the broker must decide at execution time based on the exact action, target, caller, current grant and user settings.
+
+Pinned sources:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/jan-cli/src/main.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/agent/loop.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/agent/project.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/permissions.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/docs/src/pages/docs/agent/permissions.mdx
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/docs/src/pages/docs/agent/cli.mdx
+
+### 11.2 Desktop MCP client has a meaningful one-use authorization boundary
+
+Positive findings:
+- A tool call is resolved to a specific server and connection generation. If a server is replaced after tool discovery, the stale call is refused rather than routed to the replacement.
+- Before execution, call_tool consumes a one-use authorization bound to the exact thread ID, call ID, tool name, server name and origin. Missing, mismatched, replayed or already-consumed authorizations are refused.
+- Calls have a configurable timeout, cancellation support and output truncation before results enter conversation history.
+- Saved grants are distinct from one-shot and thread grants. Only explicit "Allow always" is persisted; thread grants are in memory and dropped on restart. Saved grants can be revoked.
+- The global allow_all_mcp setting is a persisted, explicit opt-in. It does not cover extension tools or strict calls; strict calls always ask and do not save the answer.
+- Server-wide grants do not apply to extension-origin tools.
+
+This is a good consent-store baseline. HLNA should retain call-bound one-use authorization, but add broker-enforced resource scopes, grant expiry, caller identity, action class (observe/mutate), audit and revocation generation. Re-check policy immediately before side effects.
+
+Pinned sources:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/mcp/commands.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/consent.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-agent-tools/src/commands.rs
+
+### 11.3 Jan's outbound MCP server is safer by default than its general CLI
+
+The separate jan mcp serve surface:
+- Defaults to read/search/memory/skill/web tools; filesystem writes and shell execution are not offered unless --allow-write and --allow-exec are explicitly set.
+- Uses the same tool schemas, dispatcher and gate as Jan's agent, but there is no human available to answer a prompt. Operations requiring approval are refused unless the explicit served-tool opt-in made them eligible.
+- Confines writes to the one project root fixed at server startup; escaping reads/writes are refused.
+- Defaults to OS sandboxing on and network access off for its shell. Project agent.toml may override these settings, so HLNA must inspect effective configuration.
+- Hides Jan's own home from served tools even if shell sandboxing is disabled.
+- HTTP binds only to 127.0.0.1, requires a 256-bit random bearer token, and compares the credential in constant time.
+
+This is a better starting point for tool reuse than launching a general CLI agent with default auto-approval. HLNA should supervise it as an untrusted tool provider, restrict the exposed tool list, prefer stdio, and broker every resulting action. Do not enable write/exec until separately granted.
+
+Pinned sources:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/cli/mcp_serve.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/mcp/server/mod.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/src/core/mcp/server/http.rs
+
+### 11.4 Updated security disposition
+
+- Reuse Jan's desktop one-use consent-store pattern as a baseline, not its entire policy model.
+- Do not launch Jan's general CLI agent as an HLNA child process with default flags. If a CLI process is ever used, explicitly configure safe mode, sandbox, network/home access, allowed tools and project scope; still enforce the HLNA broker outside the child.
+- Prefer the narrower jan mcp serve integration for exposing Jan tools to another agent, and keep it stdio-only unless a concrete need justifies loopback HTTP.
+- Ensure MCP, extension, workflow, subagent, desktop-control and CLI paths all converge on one Rust-side broker. No frontend prompt or MCP server grant may bypass it.
