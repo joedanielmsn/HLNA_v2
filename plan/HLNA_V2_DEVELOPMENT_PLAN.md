@@ -448,14 +448,9 @@ Do not select an engine based on feature lists alone. Test process termination/r
 
 ### 15.7 Plugin and extension recommendation
 
-Retain Jan's existing extension runtime as the first baseline. Inspect its worker lifecycle, integrity checks, manifest validation, host API and Wasmtime configuration.
+Retain Jan's existing extension runtime as the first baseline, but describe it accurately: at the pinned revision it runs extension JavaScript in browser Web Workers created from blob URLs inside a hidden same-origin frame with a restrictive worker CSP. A host-side dispatcher validates method arguments and grants; Rust mediates extension network access and re-reads grants for each request. This is not a Wasmtime runtime and is not an OS-process sandbox. Preserve it only after testing the browser/WebView threat boundary, worker termination, resource exhaustion, IPC reachability and every host method.
 
-Extism remains deferred because:
-- It would add or duplicate a Wasmtime-based runtime.
-- Its default feature set includes filesystem and HTTP capabilities.
-- These features must not become ambient plugin privileges.
-
-If Extism is later selected, build with a minimal feature set and define explicit host functions for each granted capability. Treat extension code as untrusted.
+Extism remains deferred. It would introduce a separate Wasm runtime (Wasmtime-backed) rather than duplicate Jan's current JavaScript Worker runtime. Its default feature set includes filesystem and HTTP capabilities; these must not become ambient plugin privileges. If Extism is later selected, build with a minimal feature set and expose only narrowly defined HLNA host functions. Treat extension code as untrusted.
 
 ### 15.8 Storage and process boundaries
 
@@ -536,4 +531,27 @@ Pinned source paths:
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/tauri.conf.json
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/capabilities/default.json
 - https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/scripts/download-bin.mjs
+
+
+
+### 15.12 Extension-runtime architecture and security refinement
+
+The pinned Jan source audit resolves an important ambiguity: Jan's extension runtime is **not Wasmtime-based** at commit 49a84bdeaebdfc0f36c00f252eb638f516a48432.
+
+- The host creates one classic JavaScript Web Worker per extension from a blob URL. Workers are created inside a hidden same-origin frame carrying a restrictive CSP: default-src none, script-src wasm-unsafe-eval, worker-src blob. This blocks ordinary network primitives and eval while permitting WebAssembly compilation.
+- The worker prelude strips selected globals as a second layer. Extension host calls cross a message/dispatcher boundary; the dispatcher validates argument shapes and checks each method's permission requirement. The worker can be terminated and pending host work is cancelled.
+- The Rust Tauri plugin mediates installed-extension HTTP requests. It re-reads grants from the persisted registry for each request, uses a client without a cookie store and without automatic redirects, rejects transport headers, restricts methods and request sizes, caps response bodies, and refuses the app's own local API port. Redirects are checked one hop at a time by the host.
+- The HTTP implementation documents accepted risks: DNS resolution is not pinned/validated against the granted hostname, and system/environment proxy settings may route traffic through a configured proxy. These risks need explicit HLNA policy and tests, not silent assumptions.
+- A browser Worker is a separate JavaScript execution context, not an independent OS process or a memory/CPU sandbox. The WebView/browser engine remains in the trusted computing base. A compromised renderer, engine vulnerability, unbounded CPU/memory use, or a privileged host API defect may cross the intended boundary. Do not describe this as equivalent to a Wasmtime/WASI sandbox or an OS sandbox.
+- Preserve Jan's current runtime as a prototype only after auditing every dispatcher method, install/update path, manifest validation, signature/key handling, worker lifecycle, message-size/rate limits, resource exhaustion, Tauri IPC reachability and cancellation. Evaluate a separate OS process or Wasmtime/WASI worker only if the threat model or tests show the Worker model is insufficient.
+- Extism would add a separate Wasmtime-backed WebAssembly runtime. Its default features still require disabling or tightly controlling ambient filesystem/network and exposing explicit host functions.
+
+Pinned source:
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/extensions/worker-runtime.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/extensions/dispatcher.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/web-app/src/lib/extensions/host-api.ts
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/http.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/install.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/state.rs
+- https://github.com/janhq/jan/blob/49a84bdeaebdfc0f36c00f252eb638f516a48432/src-tauri/plugins/tauri-plugin-extensions/src/permissions.rs
 
