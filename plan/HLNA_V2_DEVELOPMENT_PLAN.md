@@ -301,6 +301,8 @@ Each integration must have a rollback point, tests, licence/provenance record an
 
 Maintain these documents in the repository:
 
+- `plan/SOURCE_COMPONENT_REGISTER.md` — preliminary source audit with verified findings, candidate dispositions and immediate research priorities. This is the live companion to the plan.
+
 - `plan/HLNA_V2_DEVELOPMENT_PLAN.md` — this document.
 - `plan/SOURCE_COMPONENT_REGISTER.md` — upstreams, exact revisions, modules, licence, changes and update policy.
 - `plan/ARCHITECTURE.md` — current system architecture and data flows.
